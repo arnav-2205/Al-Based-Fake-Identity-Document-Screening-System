@@ -1,21 +1,46 @@
-node_modules/
-.env
-.env.*
-!.env.example
-
-venv/
-.venv/
-__pycache__/
-
-dist/
-build/
+# Java / Maven
 target/
+*.class
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
 
-jdk21_home/
-jdk21_temp/
+# Node
+node_modules/
+dist/
+.vite/
+*.local
 
-.vscode/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+models/*.pth
+models/*.onnx
+
+# Env / secrets
+.env
+*.pem
+*.key
+
+# IDE
 .idea/
+.vscode/
+*.iml
 
+# OS
 .DS_Store
 Thumbs.db
+
+# Data / uploads
+data/
+minio-data/
+pg-data/
+
+# Fabric
+blockchain/network/organizations/
+blockchain/network/*.tar.gz
+jdk21_home/
+jdk21_temp/
