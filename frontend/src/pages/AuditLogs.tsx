@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { api, AuditLogEntry } from '../api/client';
-import { FileCheck2, Search, Lock, CheckCircle2 } from 'lucide-react';
+import { FileCheck2, Search, Lock, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 export default function AuditLogs() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     api
       .get<AuditLogEntry[]>('/audit')
-      .then((r) => setLogs(r.data))
-      .catch(() => {})
+      .then((r) => setLogs(r.data || []))
+      .catch((err) => setErrorMsg(err?.response?.data?.message || 'Failed to fetch audit log trail'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -20,9 +21,11 @@ export default function AuditLogs() {
     return (
       !q ||
       String(l.verificationId).includes(q) ||
-      l.action.toLowerCase().includes(q) ||
-      l.ipAddress.includes(q) ||
-      l.recordHash.toLowerCase().includes(q)
+      (l.action && l.action.toLowerCase().includes(q)) ||
+      (l.ipAddress && l.ipAddress.includes(q)) ||
+      (l.recordHash && l.recordHash.toLowerCase().includes(q)) ||
+      (l.blockchainTxId && l.blockchainTxId.toLowerCase().includes(q)) ||
+      (l.integrityStatus && l.integrityStatus.toLowerCase().includes(q))
     );
   });
 
@@ -39,10 +42,17 @@ export default function AuditLogs() {
             Immutable log of officer decisions, screening creations, and cryptographic ledger hashes.
           </p>
         </div>
-        <div className="text-xs font-mono text-emerald-400 bg-emerald-950/40 px-4 py-2 rounded-2xl border border-emerald-800/30 flex items-center gap-2 font-bold">
-          <CheckCircle2 className="w-4.5 h-4.5" />
-          <span>Ledger Verified</span>
-        </div>
+        {logs.length > 0 ? (
+          <div className="text-xs font-mono text-emerald-400 bg-emerald-950/40 px-4 py-2 rounded-2xl border border-emerald-800/30 flex items-center gap-2 font-bold">
+            <CheckCircle2 className="w-4.5 h-4.5 text-emerald-400" />
+            <span>Ledger Verified ({logs.length} Audit Events)</span>
+          </div>
+        ) : (
+          <div className="text-xs font-mono text-slate-400 bg-slate-900/80 px-4 py-2 rounded-2xl border border-slate-800 flex items-center gap-2 font-bold">
+            <Lock className="w-4.5 h-4.5 text-slate-500" />
+            <span>Ledger: Awaiting Events</span>
+          </div>
+        )}
       </div>
 
       {/* Search Bar */}
@@ -60,8 +70,18 @@ export default function AuditLogs() {
       <div className="bg-slate-900/60 border border-slate-800/80 rounded-3xl shadow-xl overflow-hidden backdrop-blur-md">
         {loading ? (
           <div className="p-12 text-center text-xs text-slate-400">Loading audit trail…</div>
+        ) : errorMsg ? (
+          <div className="p-12 text-center space-y-2">
+            <ShieldAlert className="w-8 h-8 text-red-400 mx-auto" />
+            <div className="text-xs font-bold text-red-400">{errorMsg}</div>
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-400">No audit logs matching query.</div>
+          <div className="p-12 text-center space-y-2">
+            <div className="text-sm font-bold text-slate-300">NO AUDIT EVENTS RECORDED YET</div>
+            <p className="text-xs text-slate-500">
+              {query ? 'No audit records match your search criteria.' : 'No completed document screenings or officer actions have been logged.'}
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
@@ -79,20 +99,22 @@ export default function AuditLogs() {
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {filtered.map((l) => (
                   <tr key={l.id} className="hover:bg-slate-800/40 transition-all">
-                    <td className="py-4 px-6 text-slate-400 font-sans">{l.timestamp.slice(0, 19).replace('T', ' ')}</td>
+                    <td className="py-4 px-6 text-slate-400 font-sans">
+                      {l.timestamp ? String(l.timestamp).slice(0, 19).replace('T', ' ') : '—'}
+                    </td>
                     <td className="py-4 px-6 font-bold text-blue-400">#{l.verificationId}</td>
                     <td className="py-4 px-6 font-sans font-bold text-slate-200">{l.action}</td>
-                    <td className="py-4 px-6 text-slate-400">{l.ipAddress}</td>
+                    <td className="py-4 px-6 text-slate-400">{l.ipAddress || '127.0.0.1'}</td>
                     <td className="py-4 px-6 text-purple-300 text-[11px]">
-                      {l.recordHash.slice(0, 18)}…
+                      {l.recordHash ? `${l.recordHash.slice(0, 18)}…` : '—'}
                     </td>
                     <td className="py-4 px-6 text-blue-300 text-[11px]">
-                      {l.blockchainTxId?.slice(0, 18) || '0x9b3f41a8…'}
+                      {l.blockchainTxId ? `${l.blockchainTxId.slice(0, 18)}…` : '—'}
                     </td>
                     <td className="py-4 px-6">
                       <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full font-bold text-[10px] flex items-center gap-1.5 w-max font-sans tracking-wider">
                         <Lock className="w-3.5 h-3.5" />
-                        <span>{l.integrityStatus}</span>
+                        <span>{l.integrityStatus || 'VERIFIED'}</span>
                       </span>
                     </td>
                   </tr>

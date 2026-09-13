@@ -27,8 +27,15 @@ public class AuditLog {
     @Column(nullable = false)
     private String action;
 
-    @Column(insertable = false, updatable = false)
+    @Column(name = "timestamp")
     private OffsetDateTime timestamp;
+
+    @PrePersist
+    public void prePersist() {
+        if (timestamp == null) {
+            timestamp = OffsetDateTime.now();
+        }
+    }
 
     @Column(name = "ip_address")
     private String ipAddress;

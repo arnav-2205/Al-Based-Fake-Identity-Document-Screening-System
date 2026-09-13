@@ -26,8 +26,8 @@ export default function Login() {
     try {
       await login(officerId, password);
       nav('/');
-    } catch {
-      setError('Invalid officer ID or password. Please check credentials.');
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Invalid officer ID or password. Please check credentials.');
     } finally {
       setBusy(false);
     }

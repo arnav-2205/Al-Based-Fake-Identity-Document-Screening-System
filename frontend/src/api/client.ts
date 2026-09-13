@@ -43,6 +43,10 @@ export interface ExtractedView {
   mrz?: string;
   ocrConfidence?: number;
   visualZone?: Record<string, unknown>;
+  documentCategory?: string;
+  documentSubtype?: string;
+  applicableFields?: string[];
+  applicableChecks?: string[];
 }
 
 export interface RealtimeOcrResult {
@@ -63,6 +67,10 @@ export interface RealtimeOcrResult {
   visualZone?: {
     rawText?: string;
     detectedDocumentType?: string;
+    documentCategory?: string;
+    documentSubtype?: string;
+    applicableFields?: string[];
+    applicableChecks?: string[];
     issuingCountry?: string;
     fatherName?: string;
     address?: string;
@@ -73,6 +81,10 @@ export interface RealtimeOcrResult {
   mrzChecks?: Record<string, boolean>;
   notes: string[];
   detectedDocumentType?: string;
+  documentCategory?: string;
+  documentSubtype?: string;
+  applicableFields?: string[];
+  applicableChecks?: string[];
   issuingCountry?: string;
   extractionTimeMs?: number;
   qrDetected?: boolean;
@@ -125,6 +137,8 @@ export interface VerificationView {
   faceMatchStatus: string;
   livenessStatus: string;
   blacklistStatus: string;
+  storedIdentityMatchStatus?: string;
+  storedIdentityMatchDetail?: string;
   riskScore: number;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   finalResult: 'CLEAR' | 'MANUAL_REVIEW' | 'REJECT';

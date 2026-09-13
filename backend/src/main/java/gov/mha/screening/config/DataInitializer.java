@@ -1,10 +1,16 @@
 package gov.mha.screening.config;
 
+import gov.mha.screening.audit.AuditLog;
+import gov.mha.screening.audit.AuditLogRepository;
 import gov.mha.screening.blacklist.Blacklist;
 import gov.mha.screening.blacklist.BlacklistRepository;
+import gov.mha.screening.blockchain.BlockchainService;
+import gov.mha.screening.common.HashUtil;
 import gov.mha.screening.user.Role;
 import gov.mha.screening.user.User;
 import gov.mha.screening.user.UserRepository;
+import gov.mha.screening.verification.VerificationRepository;
+import gov.mha.screening.verification.VerificationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -12,6 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 @Component
@@ -21,6 +28,9 @@ public class DataInitializer implements CommandLineRunner {
 
     private final UserRepository userRepository;
     private final BlacklistRepository blacklistRepository;
+    private final VerificationRepository verificationRepository;
+    private final AuditLogRepository auditLogRepository;
+    private final BlockchainService blockchainService;
     private final PasswordEncoder passwordEncoder;
 
     @Override
@@ -97,6 +107,34 @@ public class DataInitializer implements CommandLineRunner {
 
             blacklistRepository.saveAll(List.of(b1, b2, b3));
             log.info("Successfully seeded 3 watchlist entries.");
+        }
+
+        // Backfill audit logs for existing verifications that lack an audit trail
+        List<VerificationResult> existingVerifications = verificationRepository.findAll();
+        long backfillCount = 0;
+        for (VerificationResult vr : existingVerifications) {
+            if (auditLogRepository.findByVerificationIdOrderByTimestampAsc(vr.getId()).isEmpty()) {
+                AuditLog logEntry = new AuditLog();
+                logEntry.setVerificationId(vr.getId());
+                logEntry.setUserId(vr.getVerifiedBy() != null ? vr.getVerifiedBy() : 1L);
+                logEntry.setAction("VERIFICATION_CREATED");
+                logEntry.setIpAddress("127.0.0.1");
+                String canonicalHash = HashUtil.sha256("{" +
+                        "\"documentId\":" + vr.getDocumentId() + "," +
+                        "\"finalResult\":\"" + vr.getFinalResult() + "\"," +
+                        "\"riskLevel\":\"" + vr.getRiskLevel() + "\"" +
+                        "}");
+                logEntry.setRecordHash(canonicalHash);
+                String txId = blockchainService.registerVerification(String.valueOf(vr.getId()), canonicalHash);
+                logEntry.setBlockchainTxId(txId);
+                logEntry.setIntegrityStatus("VERIFIED");
+                logEntry.setTimestamp(vr.getCreatedAt() != null ? vr.getCreatedAt() : OffsetDateTime.now());
+                auditLogRepository.save(logEntry);
+                backfillCount++;
+            }
+        }
+        if (backfillCount > 0) {
+            log.info("Successfully backfilled audit trail for {} existing verifications.", backfillCount);
         }
     }
 }

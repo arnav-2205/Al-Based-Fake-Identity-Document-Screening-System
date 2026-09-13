@@ -506,6 +506,79 @@ def _extract_qr_info(data: bytes, viz_fields: dict, fields: dict) -> dict:
         }
 
 
+def _get_document_capabilities(
+    category: str,
+    subtype: str,
+    mrz_detected: bool = False,
+    qr_detected: bool = False,
+    barcode_detected: bool = False,
+) -> tuple[list[str], list[str]]:
+    """Determine applicable fields and applicable verification checks based on document classification and detected signals."""
+    applicable_checks: list[str] = ["OCR", "TAMPER", "BIOMETRIC"]
+
+    cat = (category or "NATIONAL_ID").upper()
+    sub = (subtype or "NATIONAL_ID_CARD").upper()
+
+    if cat == "PASSPORT" or sub == "PASSPORT":
+        applicable_fields = [
+            "documentNumber", "passportNumber", "holderName", "dateOfBirth", "gender",
+            "nationality", "issuingCountry", "issueDate", "expiryDate", "photo"
+        ]
+        applicable_checks.append("MRZ")
+    elif cat == "VISA" or sub == "VISA":
+        applicable_fields = [
+            "documentNumber", "visaNumber", "holderName", "passportNumber", "nationality",
+            "dateOfBirth", "gender", "issuingCountry", "issueDate", "expiryDate", "photo"
+        ]
+        if mrz_detected:
+            applicable_checks.append("MRZ")
+    elif cat == "DRIVING_LICENCE" or sub == "DRIVING_LICENCE":
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "gender",
+            "address", "issueDate", "expiryDate", "issuingCountry", "photo"
+        ]
+        if barcode_detected:
+            applicable_checks.append("BARCODE")
+    elif sub == "AADHAAR":
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "gender", "address", "photo"
+        ]
+        applicable_checks.append("QR")
+    elif sub in ("VOTER_ID", "ELECTORAL_ID"):
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "gender", "address", "photo"
+        ]
+    elif sub in ("TAX_ID", "PAN"):
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "issuingCountry", "photo"
+        ]
+    elif sub == "RESIDENT_PERMIT":
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "gender", "nationality",
+            "address", "issueDate", "expiryDate", "photo"
+        ]
+        if mrz_detected:
+            applicable_checks.append("MRZ")
+    elif sub == "SOCIAL_SECURITY_ID":
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "issuingCountry", "photo"
+        ]
+    else:  # NATIONAL_ID_CARD / OTHER_GOVT_ID / OTHER_GOVT_DOC
+        applicable_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "gender",
+            "nationality", "issuingCountry", "issueDate", "expiryDate", "address", "photo"
+        ]
+        if mrz_detected:
+            applicable_checks.append("MRZ")
+
+    if qr_detected and "QR" not in applicable_checks:
+        applicable_checks.append("QR")
+    if barcode_detected and "BARCODE" not in applicable_checks:
+        applicable_checks.append("BARCODE")
+
+    return applicable_fields, applicable_checks
+
+
 # ==============================================================================
 # GENERIC NATIONAL ID ADAPTER ENGINE
 # ==============================================================================
@@ -534,11 +607,16 @@ class GenericNationalIDAdapter:
 
         # 1. Detect Issuing Country & Document Classification
         country = self._detect_country(upper_text)
-        doc_type = self._detect_doc_type(upper_text, raw_mrz)
+        doc_category, doc_subtype = self._detect_doc_category_and_subtype(upper_text, raw_mrz)
+        doc_type = doc_subtype
+
+        applicable_fields, applicable_checks = _get_document_capabilities(
+            doc_category, doc_subtype, raw_mrz is not None
+        )
 
         fields: dict[str, str] = {}
         field_confidences: dict[str, float] = {}
-        notes: list[str] = [f"Generic National ID Adapter active (Country: {country}, Type: {doc_type})"]
+        notes: list[str] = [f"Generic National ID Adapter active (Category: {doc_category}, Subtype: {doc_subtype}, Country: {country})"]
 
         # 2. Semantic Multilingual Field Extraction
         # Name candidate extraction
@@ -596,7 +674,7 @@ class GenericNationalIDAdapter:
         fields["issuingCountry"] = country
 
         # 3. Determine Explicit Field States
-        field_states = self._determine_field_states(fields, field_confidences, doc_type)
+        field_states = self._determine_field_states(fields, field_confidences, doc_category, doc_subtype, applicable_fields)
 
         return {
             "fields": fields,
@@ -604,6 +682,10 @@ class GenericNationalIDAdapter:
             "fieldStates": field_states,
             "issuingCountry": country,
             "detectedDocumentType": doc_type,
+            "documentCategory": doc_category,
+            "documentSubtype": doc_subtype,
+            "applicableFields": applicable_fields,
+            "applicableChecks": applicable_checks,
             "notes": notes,
         }
 
@@ -630,22 +712,32 @@ class GenericNationalIDAdapter:
             return "SOUTH AFRICA"
         return "UNKNOWN"
 
-    def _detect_doc_type(self, upper: str, raw_mrz: str | None) -> str:
+    def _detect_doc_category_and_subtype(self, upper: str, raw_mrz: str | None) -> tuple[str, str]:
         if raw_mrz and raw_mrz.startswith("P<"):
-            return "PASSPORT"
-        if any(k in upper for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")):
-            return "AADHAAR"
+            return "PASSPORT", "PASSPORT"
+        if any(k in upper for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")) or (any(k in upper for k in ("GOVERNMENT OF INDIA", "INDIA")) and re.search(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", upper)):
+            return "NATIONAL_ID", "AADHAAR"
         if any(k in upper for k in ("DRIVING LICENCE", "DRIVING LICENSE", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT")):
-            return "DRIVING_LICENCE"
-        if any(k in upper for k in ("INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER")):
-            return "PAN"
-        if any(k in upper for k in ("ELECTION COMMISSION", "ELECTORAL", "ELECTOR PHOTO")):
-            return "VOTER_ID"
+            return "DRIVING_LICENCE", "DRIVING_LICENCE"
+        if any(k in upper for k in ("INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER", "PAN CARD", "TAX ID")):
+            return "NATIONAL_ID", "TAX_ID"
+        if any(k in upper for k in ("ELECTION COMMISSION", "ELECTORAL", "ELECTOR PHOTO", "VOTER ID", "EPIC")):
+            return "NATIONAL_ID", "VOTER_ID"
+        if any(k in upper for k in ("RESIDENCE PERMIT", "RESIDENT PERMIT", "AUFENTHALTSTITEL", "PERMIT DE SEJOUR")):
+            return "NATIONAL_ID", "RESIDENT_PERMIT"
+        if any(k in upper for k in ("SOCIAL SECURITY", "SOCIAL INSURANCE", "SSN")):
+            return "NATIONAL_ID", "SOCIAL_SECURITY_ID"
         if any(k in upper for k in ("PASSPORT", "PASSEPORT")):
-            return "PASSPORT"
+            return "PASSPORT", "PASSPORT"
+        if any(k in upper for k in ("VISA", "VISA TRAVEL")):
+            return "VISA", "VISA"
         if any(k in upper for k in ("PERSONALAUSWEIS", "NATIONAL ID", "IDENTITY CARD", "CARTE NATIONALE", "CITIZEN CARD")):
-            return "NATIONAL_ID"
-        return "NATIONAL_ID"
+            return "NATIONAL_ID", "NATIONAL_ID_CARD"
+        return "NATIONAL_ID", "OTHER_GOVT_ID"
+
+    def _detect_doc_type(self, upper: str, raw_mrz: str | None) -> str:
+        cat, sub = self._detect_doc_category_and_subtype(upper, raw_mrz)
+        return sub
 
     def _extract_holder_name(
         self, lines: list[str], boxes: list[dict[str, Any]], notes: list[str]
@@ -683,31 +775,28 @@ class GenericNationalIDAdapter:
                         return cand_val, max(0.85, c["confidence"]), "Spatial Bounding Box Match"
 
         # Path C: Layout Candidate Ranking (For documents without 'Name:' label, e.g. Aadhaar)
-        # Find anchor index of DOB / Gender / Relation line
         anchor_idx = -1
         for i, line in enumerate(lines):
             if re.search(r"\b(DOB|YEAR OF BIRTH|YOB|DATE OF BIRTH|MALE|FEMALE|SON OF|DAUGHTER OF|WIFE OF|S/O|D/O|W/O)\b", line, re.I):
                 anchor_idx = i
                 break
 
-        candidates: list[tuple[str, float, float]] = []  # (text, score, box_conf)
+        candidates: list[tuple[str, float, float]] = []
         search_lines = lines[:anchor_idx] if anchor_idx > 0 else lines[:6]
 
         for line_str in search_lines:
             cand = line_str.strip()
             up_cand = cand.upper()
 
-            # Filter non-name noise
             if len(cand) < 3 or len(cand) > 40:
                 continue
             if any(k in up_cand for k in self.NOISE_KEYWORDS):
                 continue
-            if re.search(r"\d", cand):  # Name should not contain digits
+            if re.search(r"\d", cand):
                 continue
             if not re.match(r"^[A-Za-z][A-Za-z '.-]+$", cand):
                 continue
 
-            # Candidate Scoring Formula
             score = 0.5
             words = cand.split()
             if 2 <= len(words) <= 4:
@@ -717,7 +806,6 @@ class GenericNationalIDAdapter:
             elif cand.istitle():
                 score += 0.10
 
-            # Match with box confidence
             box_c = 0.80
             for box in boxes:
                 if cand.lower() in box["text"].lower():
@@ -727,7 +815,6 @@ class GenericNationalIDAdapter:
             candidates.append((cand.upper(), score, box_c))
 
         if candidates:
-            # Sort by candidate score descending
             candidates.sort(key=lambda x: x[1], reverse=True)
             best_name, best_score, box_conf = candidates[0]
             conf = min(0.98, max(0.65, box_conf * best_score))
@@ -738,28 +825,22 @@ class GenericNationalIDAdapter:
     def _extract_doc_number(
         self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
     ) -> tuple[str, float]:
-        # Indian Patterns
-        # Aadhaar: 12 digits (4 4 4 or contiguous)
         aadhaar_m = re.search(r"\b(\d{4}[-\s]?\d{4}[-\s]?\d{4})\b", upper)
         if aadhaar_m and any(k in upper for k in ("AADHAAR", "GOVERNMENT OF INDIA", "MALE", "FEMALE", "INDIA", "UNIQUE")):
             return aadhaar_m.group(1), 0.96
 
-        # DL: e.g. MH10 20240021135
         dl_m = re.search(r"\b([A-Z]{2}[0-9O]{1,2}\s*[0-9O]{11,15})\b", upper)
         if dl_m:
             return dl_m.group(1).replace("O", "0"), 0.95
 
-        # PAN: 5 uppercase, 4 digits, 1 uppercase
         pan_m = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", upper)
         if pan_m:
             return pan_m.group(1), 0.97
 
-        # Voter ID: 3 uppercase, 7 digits
         voter_m = re.search(r"\b([A-Z]{3}[0-9]{7})\b", upper)
         if voter_m:
             return voter_m.group(1), 0.95
 
-        # Multilingual Generic Document Number Regex
         doc_m = re.search(
             r"(?:DOCUMENT\s*NO?|ID\s*NO?|IDENTIFICATION\s*NO?|CARD\s*NO?|PASSPORT\s*NO?|LICENCE\s*NO?|LICENSE\s*NO?|SERIAL\s*NO?)\s*[:\s|-]+\s*([A-Z0-9\s-]{5,20})",
             upper,
@@ -784,7 +865,6 @@ class GenericNationalIDAdapter:
             if norm:
                 return norm, 0.92
 
-        # Standalone date pattern near DOB anchor
         for l in lines:
             if re.search(r"\b(DOB|BIRTH|YOB|NAISSANCE|GEBURTSDATUM)\b", l, re.I):
                 d_m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\b\d{4}\b)\b", l)
@@ -866,10 +946,10 @@ class GenericNationalIDAdapter:
         return "", 0.0
 
     def _determine_field_states(
-        self, fields: dict[str, str], confidences: dict[str, float], doc_type: str
+        self, fields: dict[str, str], confidences: dict[str, float], doc_category: str, doc_subtype: str, applicable_fields: list[str]
     ) -> dict[str, str]:
         all_target_fields = [
-            "documentNumber", "holderName", "dateOfBirth", "gender",
+            "documentNumber", "passportNumber", "holderName", "dateOfBirth", "gender",
             "nationality", "issuingCountry", "issueDate", "expiryDate", "address"
         ]
         states: dict[str, str] = {}
@@ -878,20 +958,17 @@ class GenericNationalIDAdapter:
             confidences["issuingCountry"] = 0.95
 
         for f in all_target_fields:
+            if f not in applicable_fields:
+                states[f] = "NOT_APPLICABLE"
+                continue
+
             val = fields.get(f) or (fields.get("name") if f == "holderName" else None)
             conf = confidences.get(f, 0.0)
 
             if val:
                 states[f] = "DETECTED" if conf >= 0.65 else "LOW_CONFIDENCE"
             else:
-                if doc_type == "PASSPORT" and f in ("address", "fatherName"):
-                    states[f] = "NOT_APPLICABLE"
-                elif doc_type in ("AADHAAR", "PAN", "NATIONAL_ID", "VOTER_ID", "DRIVING_LICENCE") and f == "expiryDate":
-                    states[f] = "NOT_APPLICABLE" if doc_type in ("AADHAAR", "PAN") else "NOT_DETECTED"
-                elif doc_type in ("AADHAAR", "PAN", "VOTER_ID") and f in ("issueDate", "nationality"):
-                    states[f] = "NOT_APPLICABLE"
-                else:
-                    states[f] = "NOT_DETECTED"
+                states[f] = "NOT_DETECTED"
 
         return states
 
@@ -942,6 +1019,8 @@ def extract(data: bytes) -> dict[str, Any]:
     field_confidences = id_res["fieldConfidences"]
     field_states = id_res["fieldStates"]
     doc_type = id_res["detectedDocumentType"]
+    doc_category = id_res.get("documentCategory", "NATIONAL_ID")
+    doc_subtype = id_res.get("documentSubtype", "NATIONAL_ID_CARD")
     issuing_country = id_res["issuingCountry"]
 
     # 5. If passport/ID MRZ is present, merge MRZ extracted values
@@ -1004,6 +1083,19 @@ def extract(data: bytes) -> dict[str, Any]:
             field_confidences["address"] = 0.88
             field_states["address"] = "DETECTED"
 
+        if qr_d.get("documentNumber") and len(qr_d.get("documentNumber", "").replace(" ", "")) == 12 and doc_category == "NATIONAL_ID":
+            doc_subtype = "AADHAAR"
+            doc_type = "AADHAAR"
+
+    # Calculate overall document capabilities (fields & verification checks)
+    applicable_fields, applicable_checks = _get_document_capabilities(
+        doc_category,
+        doc_subtype,
+        mrz_detected=parsed_mrz is not None,
+        qr_detected=qr_info["qrDetected"],
+        barcode_detected=barcode_info["barcodeDetected"]
+    )
+
     # Document-adaptive Field Extraction Confidence vs Raw Bounding Box OCR Confidence
     valid_confs = [v for k, v in field_confidences.items() if v > 0.0 and field_states.get(k) in ("DETECTED", "LOW_CONFIDENCE")]
     field_extraction_conf = round(sum(valid_confs) / len(valid_confs), 3) if valid_confs else 0.85
@@ -1014,6 +1106,10 @@ def extract(data: bytes) -> dict[str, Any]:
         **fields,
         "rawText": text[:2500] if text else "",
         "detectedDocumentType": doc_type,
+        "documentCategory": doc_category,
+        "documentSubtype": doc_subtype,
+        "applicableFields": applicable_fields,
+        "applicableChecks": applicable_checks,
         "issuingCountry": issuing_country,
         "fieldConfidences": field_confidences,
         "fieldStates": field_states,
@@ -1051,6 +1147,10 @@ def extract(data: bytes) -> dict[str, Any]:
         "mrzStatus": mrz_status,
         "notes": notes,
         "detectedDocumentType": doc_type,
+        "documentCategory": doc_category,
+        "documentSubtype": doc_subtype,
+        "applicableFields": applicable_fields,
+        "applicableChecks": applicable_checks,
         "issuingCountry": issuing_country,
         "extractionTimeMs": extraction_time_ms,
         "qrDetected": qr_info["qrDetected"],

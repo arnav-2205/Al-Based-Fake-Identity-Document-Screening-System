@@ -13,7 +13,9 @@ public final class VerificationDtos {
     public record ExtractedView(
             String name, String passportNumber, String nationality,
             String dateOfBirth, String gender, String issueDate, String expiryDate,
-            String mrz, Double ocrConfidence, Map<String, Object> visualZone
+            String mrz, Double ocrConfidence, Map<String, Object> visualZone,
+            String documentCategory, String documentSubtype,
+            List<String> applicableFields, List<String> applicableChecks
     ) {}
 
     public record VerificationView(
@@ -32,6 +34,8 @@ public final class VerificationDtos {
             String faceMatchStatus,
             String livenessStatus,
             String blacklistStatus,
+            String storedIdentityMatchStatus,
+            String storedIdentityMatchDetail,
             Double riskScore,
             String riskLevel,
             String finalResult,

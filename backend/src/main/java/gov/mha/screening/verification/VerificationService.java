@@ -263,24 +263,37 @@ public class VerificationService {
         return e;
     }
 
-    private record MultiIdentity(boolean flagged, String detail) {}
+    private record MultiIdentity(boolean flagged, String detail, String matchedDocNumber, double similarity) {}
 
     private MultiIdentity checkMultiIdentity(AiDtos.FaceResult face, String currentDocNumber) {
         if (face == null || face.embedding() == null || face.embedding().isEmpty()) {
-            return new MultiIdentity(false, null);
+            return new MultiIdentity(false, "NO_EMBEDDING", null, 0.0);
         }
-        double threshold = 0.62; // ArcFace cosine — tune empirically
+        String normCurrent = normalizeDocNum(currentDocNumber);
+        double threshold = 0.62; // ArcFace cosine similarity threshold
         for (FaceEmbedding stored : embeddingRepo.findAll()) {
+            String normStored = normalizeDocNum(stored.getDocumentNumber());
+            // Ignore missing/unparsed document numbers or re-scans of the EXACT same document number
+            if (normStored == null || (normCurrent != null && normStored.equalsIgnoreCase(normCurrent))) {
+                continue;
+            }
             double sim = FaceMath.cosineSimilarity(face.embedding(), stored.getEmbedding());
-            boolean differentDoc = stored.getDocumentNumber() != null
-                    && !stored.getDocumentNumber().equalsIgnoreCase(currentDocNumber);
-            if (sim >= threshold && differentDoc) {
+            if (sim >= threshold) {
                 return new MultiIdentity(true, String.format(
-                        "Multiple-identity: face matches stored embedding for document %s (cosine %.2f)",
-                        stored.getDocumentNumber(), sim));
+                        "Potential Multiple-Identity Match: Face matches stored embedding for document %s (cosine %.2f)",
+                        stored.getDocumentNumber(), sim), stored.getDocumentNumber(), sim);
             }
         }
-        return new MultiIdentity(false, null);
+        return new MultiIdentity(false, "CLEAR", null, 0.0);
+    }
+
+    private static String normalizeDocNum(String docNum) {
+        if (docNum == null) return null;
+        String s = docNum.trim().toUpperCase().replaceAll("[^A-Z0-9]", "");
+        if (s.isEmpty() || s.equals("UNKNOWN") || s.equals("APELLIDOS") || s.equals("STAATER") || s.equals("NONE") || s.length() < 3) {
+            return null;
+        }
+        return s;
     }
 
     private double compositeTamper(AiDtos.TamperResult t) {
@@ -306,8 +319,8 @@ public class VerificationService {
     private String deriveFinalResult(String riskLevel, ValidationEngine.Outcome v,
                                      BlacklistService.Hit b, MultiIdentity m) {
         if (b.matched() || v.mrzChecksumFailed()) return "REJECT";
-        if ("HIGH".equals(riskLevel) || m.flagged()) return "REJECT";
-        if ("MEDIUM".equals(riskLevel) || v.expired()) return "MANUAL_REVIEW";
+        if ("HIGH".equals(riskLevel)) return "REJECT";
+        if ("MEDIUM".equals(riskLevel) || v.expired() || m.flagged()) return "MANUAL_REVIEW";
         return "CLEAR";
     }
 
@@ -332,13 +345,18 @@ public class VerificationService {
                                                     AiDtos.TamperResult t, String hash, String txId) {
         boolean overrideTriggered = false;
         String overrideReason = null;
+        String multiStatus = "CLEAR";
+        String multiDetail = "No duplicate identity match detected in historical database";
 
         if (vr.getReasons() != null) {
             for (String r : vr.getReasons()) {
                 if (r != null && r.contains("Hard Rejection Override")) {
                     overrideTriggered = true;
                     overrideReason = r;
-                    break;
+                }
+                if (r != null && (r.contains("Multiple-Identity") || r.contains("Multiple-identity"))) {
+                    multiStatus = "POTENTIAL_MATCH_DETECTED";
+                    multiDetail = r;
                 }
             }
         }
@@ -354,7 +372,8 @@ public class VerificationService {
                 vr.getTamperingScore(), vr.getPhotoTampering(), vr.getTextTampering(), vr.getStampTampering(),
                 t != null ? t.elaHeatmapBase64() : heatmaps.get(vr.getId()),
                 vr.getFaceMatchScore(), vr.getFaceMatchStatus(), vr.getLivenessStatus(),
-                vr.getBlacklistStatus(), vr.getRiskScore(), vr.getRiskLevel(), vr.getFinalResult(),
+                vr.getBlacklistStatus(), multiStatus, multiDetail,
+                vr.getRiskScore(), vr.getRiskLevel(), vr.getFinalResult(),
                 overrideTriggered, overrideReason,
                 vr.getReasons(), hash, txId, vr.getCreatedAt());
     }
@@ -364,11 +383,20 @@ public class VerificationService {
         return toView(doc, e, vr, null, hash, txId);
     }
 
+    @SuppressWarnings("unchecked")
     private VerificationDtos.ExtractedView extractedView(ExtractedData e) {
+        Map<String, Object> vz = e.getVisualZone() != null ? e.getVisualZone() : Map.of();
+        String cat = vz.get("documentCategory") != null ? String.valueOf(vz.get("documentCategory")) : "NATIONAL_ID";
+        String sub = vz.get("documentSubtype") != null ? String.valueOf(vz.get("documentSubtype"))
+                : (vz.get("detectedDocumentType") != null ? String.valueOf(vz.get("detectedDocumentType")) : "NATIONAL_ID_CARD");
+        List<String> fields = vz.get("applicableFields") instanceof List ? (List<String>) vz.get("applicableFields") : List.of();
+        List<String> checks = vz.get("applicableChecks") instanceof List ? (List<String>) vz.get("applicableChecks") : List.of();
+
         return new VerificationDtos.ExtractedView(
                 e.getName(), e.getPassportNumber(), e.getNationality(),
                 str(e.getDateOfBirth()), e.getGender(), str(e.getIssueDate()), str(e.getExpiryDate()),
-                e.getMrzData(), e.getOcrConfidence(), e.getVisualZone());
+                e.getMrzData(), e.getOcrConfidence(), e.getVisualZone(),
+                cat, sub, fields, checks);
     }
 
     private static List<String> nullSafe(List<String> l) { return l == null ? List.of() : l; }

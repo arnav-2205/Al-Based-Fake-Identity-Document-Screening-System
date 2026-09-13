@@ -16,6 +16,10 @@ class OcrResult(BaseModel):
     mrzChecks: dict[str, bool] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
     detectedDocumentType: str = "UNKNOWN"
+    documentCategory: str = "NATIONAL_ID"
+    documentSubtype: str = "NATIONAL_ID_CARD"
+    applicableFields: list[str] = Field(default_factory=list)
+    applicableChecks: list[str] = Field(default_factory=list)
     issuingCountry: str = "UNKNOWN"
     extractionTimeMs: float = 0.0
     qrDetected: bool = False

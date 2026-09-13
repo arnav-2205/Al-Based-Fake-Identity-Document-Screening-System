@@ -17,19 +17,19 @@ public class AuditController {
     private final VerificationService verificationService;
 
     @GetMapping("/{verificationId}")
-    @PreAuthorize("hasAnyRole('ADMIN','INVESTIGATOR','AUDITOR')")
+    @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR','AUDITOR')")
     public List<AuditLog> forVerification(@PathVariable Long verificationId) {
         return auditService.trail(verificationId);
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','INVESTIGATOR','AUDITOR')")
+    @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR','AUDITOR')")
     public List<AuditLog> all() {
         return auditService.all();
     }
 
     @GetMapping("/{verificationId}/integrity-check")
-    @PreAuthorize("hasAnyRole('ADMIN','INVESTIGATOR','AUDITOR')")
+    @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR','AUDITOR')")
     public Map<String, Object> integrity(@PathVariable Long verificationId) {
         return verificationService.integrityCheck(verificationId);
     }

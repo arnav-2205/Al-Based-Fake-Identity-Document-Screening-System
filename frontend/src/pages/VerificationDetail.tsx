@@ -85,15 +85,17 @@ export default function VerificationDetail() {
 
   function printReport() {
     window.print();
-  }
-
-  const vz = v.extracted?.visualZone || {};
-  const detectedDocType = (vz.detectedDocumentType as string) || v.documentType || 'NATIONAL_ID';
+  }  const vz = v.extracted?.visualZone || {};
+  const docCategory = (v.extracted?.documentCategory as string) || (vz.documentCategory as string) || (v.documentType === 'PASSPORT' ? 'PASSPORT' : 'NATIONAL_ID');
+  const docSubtype = (v.extracted?.documentSubtype as string) || (vz.documentSubtype as string) || (vz.detectedDocumentType as string) || v.documentType || 'NATIONAL_ID_CARD';
   const issuingCountry = (vz.issuingCountry as string) || 'INDIA';
-  const isPassport = v.documentType === 'PASSPORT' || detectedDocType === 'PASSPORT';
+  const isPassport = docCategory === 'PASSPORT' || docSubtype === 'PASSPORT';
 
   const fieldConfidences: Record<string, number> = (vz.fieldConfidences as any) || {};
   const fieldStates: Record<string, string> = (vz.fieldStates as any) || {};
+
+  const applicableFieldsList: string[] = (v.extracted?.applicableFields as string[]) || (vz.applicableFields as string[]) || [];
+  const applicableChecksList: string[] = (v.extracted?.applicableChecks as string[]) || (vz.applicableChecks as string[]) || [];
 
   const fieldExtractionPct = vz.fieldExtractionConfidence != null
     ? Math.round(Number(vz.fieldExtractionConfidence) * 100)
@@ -115,7 +117,25 @@ export default function VerificationDetail() {
     { key: 'address', label: 'Registered Address', val: vz.address ? String(vz.address) : undefined },
   ];
 
+  const filteredStandardFields = standardFields.filter((f) => {
+    const state = fieldStates[f.key] || fieldStates[f.key === 'holderName' ? 'name' : f.key];
+    if (state === 'NOT_APPLICABLE') return false;
+
+    if (applicableFieldsList.length > 0) {
+      const isApplicable = applicableFieldsList.includes(f.key) ||
+        (f.key === 'holderName' && (applicableFieldsList.includes('name') || applicableFieldsList.includes('holderName'))) ||
+        (f.key === 'documentNumber' && (applicableFieldsList.includes('passportNumber') || applicableFieldsList.includes('documentNumber') || applicableFieldsList.includes('visaNumber')));
+      if (!isApplicable) return false;
+    }
+
+    return true;
+  });
+
   const mrzLines = v.extracted?.mrz ? v.extracted.mrz.split('\n').filter(Boolean) : [];
+  const showQr = applicableChecksList.includes('QR') || Boolean(vz.qrDetected);
+  const showBarcode = applicableChecksList.includes('BARCODE') || Boolean(vz.barcodeDetected);
+  const showMrz = applicableChecksList.includes('MRZ') || (mrzLines.length > 0) || (Boolean(vz.mrzStatus) && vz.mrzStatus !== 'NOT_AVAILABLE');
+
   const formattedDate = v.createdAt
     ? v.createdAt.slice(0, 19).replace('T', ' ')
     : new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -135,11 +155,7 @@ export default function VerificationDetail() {
           </span>
         );
       case 'NOT_APPLICABLE':
-        return (
-          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
-            — NOT APPLICABLE
-          </span>
-        );
+        return null;
       case 'NOT_DETECTED':
       default:
         return (
@@ -161,6 +177,8 @@ export default function VerificationDetail() {
     );
   };
 
+  const isFacePerformed = v.faceMatchStatus !== 'NOT_PERFORMED' && v.faceMatchStatus !== 'SKIPPED' && v.faceMatchStatus !== 'UNKNOWN';
+
   return (
     <div className="space-y-8">
       {/* Top Header Banner */}
@@ -175,14 +193,16 @@ export default function VerificationDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-                {isPassport ? 'PASSPORT VERIFICATION' : 'NATIONAL ID VERIFICATION'}
+                {docCategory.replace('_', ' ')} VERIFICATION
               </h1>
               <RiskBadge level={v.riskLevel} score={v.riskScore} />
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1 font-mono">
+            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1 font-mono flex-wrap">
               <span>Doc ID: #{v.documentId}</span>
               <span>·</span>
-              <span className="text-blue-400 font-bold">Detected: {detectedDocType}</span>
+              <span className="text-blue-400 font-bold">Category: {docCategory}</span>
+              <span>·</span>
+              <span className="text-indigo-400 font-bold">Subtype: {docSubtype}</span>
               <span>·</span>
               <span className="text-emerald-400 font-bold flex items-center gap-1">
                 <Globe className="w-3 h-3" />
@@ -239,28 +259,28 @@ export default function VerificationDetail() {
 
       {/* Grid: Identity Fields & Machine-Readable Evidence */}
       <div className="grid lg:grid-cols-2 gap-8">
-        {/* Section 1: Dynamic Generic National ID Identity Information */}
+        {/* Section 1: Dynamic Document-Adaptive Identity Information */}
         <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
               <FileText className="w-4.5 h-4.5 text-blue-400" />
-              <span>Identity Information (Document-Adaptive)</span>
+              <span>Identity Information ({docSubtype})</span>
             </h2>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20" title="Field Extraction Confidence (Average across valid target fields)">
+              <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20" title="Field Extraction Confidence">
                 Field OCR: {fieldExtractionPct}%
               </span>
-              <span className="text-[11px] font-mono font-bold text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-700" title="Raw Bounding Box OCR Confidence across all text regions">
+              <span className="text-[11px] font-mono font-bold text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-700" title="Raw Bounding Box OCR Confidence">
                 Raw Box: {rawOcrPct}%
               </span>
             </div>
           </div>
 
           <div className="divide-y divide-slate-800/60">
-            {standardFields.map((f) => {
+            {filteredStandardFields.map((f) => {
               const displayVal = f.val !== undefined && f.val !== null && String(f.val).trim() !== '' ? String(f.val) : '—';
               const conf = fieldConfidences[f.key];
-              const state = fieldStates[f.key] || (displayVal !== '—' ? 'DETECTED' : (isPassport && f.key === 'address' ? 'NOT_APPLICABLE' : 'NOT_DETECTED'));
+              const state = fieldStates[f.key] || (displayVal !== '—' ? 'DETECTED' : 'NOT_DETECTED');
 
               return (
                 <div key={f.key} className="flex justify-between items-center py-2.5 text-xs">
@@ -284,76 +304,90 @@ export default function VerificationDetail() {
         <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-6 backdrop-blur-md">
           <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
             <Scan className="w-4.5 h-4.5 text-indigo-400" />
-            <span>Machine-Readable Technologies &amp; Signals</span>
+            <span>Machine-Readable Features &amp; Security Signals</span>
           </h2>
 
-          <div className="grid sm:grid-cols-3 gap-4 text-xs">
-            {/* Card 1: QR Code */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-              <div className="flex items-center gap-2 text-blue-400 font-bold">
-                <QrCode className="w-4 h-4" />
-                <span>QR Code</span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
-                <span className={`font-bold font-mono text-[11px] ${vz.qrDetected ? 'text-emerald-400' : 'text-slate-400'}`}>
-                  {vz.qrStatus || (vz.qrDetected ? 'DETECTED' : 'NOT_AVAILABLE')}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">Cryptographic Signature</span>
-                <span className="text-[10px] text-slate-300 font-mono block">
-                  {vz.qrSignatureStatus || 'Unverified (No PKI Root)'}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">QR ↔ Visual OCR</span>
-                <span className={`font-bold font-mono text-[10px] ${vz.qrOcrMatchStatus === 'MATCH' ? 'text-emerald-400' : vz.qrOcrMatchStatus === 'MISMATCH' ? 'text-red-400' : 'text-slate-400'}`}>
-                  {vz.qrOcrMatchStatus || 'NOT_APPLICABLE'}
-                </span>
-              </div>
+          {!showQr && !showBarcode && !showMrz ? (
+            <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-center space-y-1">
+              <ShieldCheck className="w-8 h-8 text-blue-400 mx-auto" />
+              <p className="text-xs font-bold text-slate-300">No Machine-Readable Codes Applicable</p>
+              <p className="text-[11px] text-slate-400">This document format ({docSubtype}) relies on Visual Zone Forensic Audit and Optical Character Recognition.</p>
             </div>
+          ) : (
+            <div className="grid sm:grid-cols-3 gap-4 text-xs">
+              {/* Card 1: QR Code */}
+              {showQr && (
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2 text-blue-400 font-bold">
+                    <QrCode className="w-4 h-4" />
+                    <span>Secure QR Code</span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
+                    <span className={`font-bold font-mono text-[11px] ${vz.qrDetected ? 'text-emerald-400' : 'text-slate-400'}`}>
+                      {String(vz.qrStatus || (vz.qrDetected ? 'DETECTED' : 'NOT_AVAILABLE'))}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Cryptographic Signature</span>
+                    <span className="text-[10px] text-slate-300 font-mono block">
+                      {String(vz.qrSignatureStatus || 'Unverified (No PKI Root)')}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">QR ↔ Visual OCR</span>
+                    <span className={`font-bold font-mono text-[10px] ${vz.qrOcrMatchStatus === 'MATCH' ? 'text-emerald-400' : vz.qrOcrMatchStatus === 'MISMATCH' ? 'text-red-400' : 'text-slate-400'}`}>
+                      {String(vz.qrOcrMatchStatus || 'NOT_APPLICABLE')}
+                    </span>
+                  </div>
+                </div>
+              )}
 
-            {/* Card 2: Barcode */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-              <div className="flex items-center gap-2 text-purple-400 font-bold">
-                <Barcode className="w-4 h-4" />
-                <span>Barcode / PDF417</span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
-                <span className={`font-bold font-mono text-[11px] ${vz.barcodeDetected ? 'text-emerald-400' : 'text-slate-400'}`}>
-                  {vz.barcodeStatus || 'NOT_AVAILABLE'}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">Decoded Payload</span>
-                <span className="text-[10px] text-slate-300 font-mono block">
-                  {vz.barcodeDecoded ? 'DECODED ✓' : (vz.barcodeDetected ? 'RAW PATTERN' : 'NONE')}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">Format</span>
-                <span className="text-[10px] text-slate-300 font-mono block">
-                  {vz.barcodeType || 'NONE'}
-                </span>
-              </div>
-            </div>
+              {/* Card 2: Barcode */}
+              {showBarcode && (
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2 text-purple-400 font-bold">
+                    <Barcode className="w-4 h-4" />
+                    <span>Barcode / PDF417</span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
+                    <span className={`font-bold font-mono text-[11px] ${vz.barcodeDetected ? 'text-emerald-400' : 'text-slate-400'}`}>
+                      {String(vz.barcodeStatus || 'NOT_AVAILABLE')}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Decoded Payload</span>
+                    <span className="text-[10px] text-slate-300 font-mono block">
+                      {vz.barcodeDecoded ? 'DECODED ✓' : (vz.barcodeDetected ? 'RAW PATTERN' : 'NONE')}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Format</span>
+                    <span className="text-[10px] text-slate-300 font-mono block">
+                      {String(vz.barcodeType || 'NONE')}
+                    </span>
+                  </div>
+                </div>
+              )}
 
-            {/* Card 3: MRZ */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold">
-                <FileText className="w-4 h-4" />
-                <span>MRZ (ICAO 9303)</span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
-                <span className={`font-bold font-mono text-[11px] ${mrzLines.length > 0 && vz.mrzStatus === 'VALIDATED' ? 'text-emerald-400' : mrzLines.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
-                  {vz.mrzStatus || (mrzLines.length > 0 ? 'VALIDATED' : 'NOT_AVAILABLE')}
-                </span>
-              </div>
+              {/* Card 3: MRZ */}
+              {showMrz && (
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                    <FileText className="w-4 h-4" />
+                    <span>MRZ (ICAO 9303)</span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
+                    <span className={`font-bold font-mono text-[11px] ${mrzLines.length > 0 && vz.mrzStatus === 'VALIDATED' ? 'text-emerald-400' : mrzLines.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                      {String(vz.mrzStatus || (mrzLines.length > 0 ? 'VALIDATED' : 'NOT_AVAILABLE'))}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* ELA Heatmap Breakdown Chart */}
           <div className="pt-2 space-y-3">
@@ -399,22 +433,31 @@ export default function VerificationDetail() {
           </h2>
           <div className="divide-y divide-slate-800/60 text-xs">
             <div className="flex justify-between py-2.5">
-              <span className="text-slate-400">Face Match Confidence</span>
+              <span className="text-slate-400">Live Selfie Face Match</span>
               <span className="font-bold text-white font-mono">
-                {v.faceMatchStatus === 'NOT_PERFORMED' || v.faceMatchStatus === 'SKIPPED' ? 'N/A (No Selfie)' : v.faceMatchScore != null ? `${Math.round(v.faceMatchScore * 100)}%` : '—'}
+                {v.faceMatchStatus === 'NOT_PERFORMED' || v.faceMatchStatus === 'SKIPPED' ? 'N/A (No Selfie Supplied)' : v.faceMatchScore != null ? `${Math.round(v.faceMatchScore * 100)}% (${v.faceMatchStatus})` : '—'}
               </span>
             </div>
             <div className="flex justify-between py-2.5">
-              <span className="text-slate-400">Face Match Verdict</span>
-              <span className="font-bold text-white">{v.faceMatchStatus}</span>
+              <span className="text-slate-400">Liveness Verification</span>
+              <span className="font-bold text-white">
+                {v.livenessStatus === 'NOT_PERFORMED' || v.livenessStatus === 'UNKNOWN' ? 'N/A (No Selfie Supplied)' : v.livenessStatus}
+              </span>
             </div>
             <div className="flex justify-between py-2.5">
-              <span className="text-slate-400">Liveness Check</span>
-              <span className="font-bold text-white">{v.livenessStatus}</span>
-            </div>
-            <div className="flex justify-between py-2.5">
-              <span className="text-slate-400">Watchlist Status</span>
+              <span className="text-slate-400">Watchlist Audit</span>
               <span className="font-bold text-white">{v.blacklistStatus}</span>
+            </div>
+            <div className="flex justify-between items-start py-2.5">
+              <span className="text-slate-400">Stored Identity Correlation</span>
+              <div className="text-right">
+                <span className={`font-bold font-mono text-[11px] ${v.storedIdentityMatchStatus === 'POTENTIAL_MATCH_DETECTED' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  {v.storedIdentityMatchStatus === 'POTENTIAL_MATCH_DETECTED' ? 'POTENTIAL MATCH DETECTED' : 'CLEAR (NO DUPLICATES)'}
+                </span>
+                {v.storedIdentityMatchDetail && v.storedIdentityMatchStatus === 'POTENTIAL_MATCH_DETECTED' && (
+                  <p className="text-[10px] text-slate-400 mt-0.5 font-mono max-w-xs">{v.storedIdentityMatchDetail}</p>
+                )}
+              </div>
             </div>
           </div>
         </section>

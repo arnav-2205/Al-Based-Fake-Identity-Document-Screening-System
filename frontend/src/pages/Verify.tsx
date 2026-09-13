@@ -414,17 +414,19 @@ export default function Verify() {
           <label className="block text-xs font-bold uppercase text-slate-300 tracking-wider mb-3">
             Document Classification
           </label>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {[
-              { id: 'PASSPORT', label: 'Passport (ICAO 9303)' },
-              { id: 'VISA', label: 'Visa Travel Doc' },
-              { id: 'NATIONAL_ID', label: 'National ID Card' },
+              { id: 'NATIONAL_ID', label: 'National ID' },
+              { id: 'PASSPORT', label: 'Passport' },
+              { id: 'VISA', label: 'Visa' },
+              { id: 'DRIVING_LICENCE', label: 'Driving Licence' },
+              { id: 'OTHER_GOVT_DOC', label: 'Other Govt Doc' },
             ].map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setDocumentType(t.id)}
-                className={`py-4 px-6 rounded-2xl border text-xs font-extrabold transition-all ${
+                className={`py-3.5 px-4 rounded-2xl border text-xs font-extrabold transition-all text-center ${
                   documentType === t.id
                     ? 'bg-blue-600/20 border-blue-500 text-blue-400 shadow-xl shadow-blue-950/40'
                     : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:border-slate-700'
