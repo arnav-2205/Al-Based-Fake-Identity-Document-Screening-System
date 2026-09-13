@@ -330,6 +330,23 @@ public class VerificationService {
 
     private VerificationDtos.VerificationView toView(Document doc, ExtractedData e, VerificationResult vr,
                                                     AiDtos.TamperResult t, String hash, String txId) {
+        boolean overrideTriggered = false;
+        String overrideReason = null;
+
+        if (vr.getReasons() != null) {
+            for (String r : vr.getReasons()) {
+                if (r != null && r.contains("Hard Rejection Override")) {
+                    overrideTriggered = true;
+                    overrideReason = r;
+                    break;
+                }
+            }
+        }
+        if (!overrideTriggered && "REJECT".equals(vr.getFinalResult()) && ("LOW".equals(vr.getRiskLevel()) || "MEDIUM".equals(vr.getRiskLevel()))) {
+            overrideTriggered = true;
+            overrideReason = "HARD SECURITY RULE OVERRIDE: Security rule triggered hard rejection independently of numerical risk score";
+        }
+
         return new VerificationDtos.VerificationView(
                 vr.getId(), doc.getId(), doc.getDocumentType(),
                 extractedView(e),
@@ -338,6 +355,7 @@ public class VerificationService {
                 t != null ? t.elaHeatmapBase64() : heatmaps.get(vr.getId()),
                 vr.getFaceMatchScore(), vr.getFaceMatchStatus(), vr.getLivenessStatus(),
                 vr.getBlacklistStatus(), vr.getRiskScore(), vr.getRiskLevel(), vr.getFinalResult(),
+                overrideTriggered, overrideReason,
                 vr.getReasons(), hash, txId, vr.getCreatedAt());
     }
 

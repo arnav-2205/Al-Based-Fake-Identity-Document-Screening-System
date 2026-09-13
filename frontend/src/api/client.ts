@@ -128,6 +128,8 @@ export interface VerificationView {
   riskScore: number;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   finalResult: 'CLEAR' | 'MANUAL_REVIEW' | 'REJECT';
+  securityOverrideTriggered?: boolean;
+  securityOverrideReason?: string;
   reasons: string[];
   recordHash: string;
   blockchainTxId?: string;

@@ -35,6 +35,8 @@ public final class VerificationDtos {
             Double riskScore,
             String riskLevel,
             String finalResult,
+            Boolean securityOverrideTriggered,
+            String securityOverrideReason,
             List<String> reasons,
             String recordHash,
             String blockchainTxId,

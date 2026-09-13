@@ -8,6 +8,8 @@ class OcrResult(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     visualZone: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.0
+    fieldExtractionConfidence: float = 0.0
+    rawOcrConfidence: float = 0.0
     fieldConfidences: dict[str, float] = Field(default_factory=dict)
     fieldStates: dict[str, str] = Field(default_factory=dict)
     mrzValid: bool = False
@@ -24,9 +26,12 @@ class OcrResult(BaseModel):
     qrOcrDiscrepancies: list[str] = Field(default_factory=list)
     barcodeDetected: bool = False
     barcodeDecoded: bool = False
+    barcodeParsed: bool = False
+    barcodeValidated: bool = False
     barcodeStatus: str = "NOT_AVAILABLE"
     barcodeType: str = "NONE"
     barcodeData: Any | None = None
+    barcodeCrossCheckStatus: str = "NOT_APPLICABLE"
     mrzStatus: str = "NOT_AVAILABLE"
 
 

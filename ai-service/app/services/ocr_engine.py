@@ -884,7 +884,9 @@ class GenericNationalIDAdapter:
             if val:
                 states[f] = "DETECTED" if conf >= 0.65 else "LOW_CONFIDENCE"
             else:
-                if doc_type in ("AADHAAR", "PAN", "NATIONAL_ID", "VOTER_ID", "DRIVING_LICENCE") and f == "expiryDate":
+                if doc_type == "PASSPORT" and f in ("address", "fatherName"):
+                    states[f] = "NOT_APPLICABLE"
+                elif doc_type in ("AADHAAR", "PAN", "NATIONAL_ID", "VOTER_ID", "DRIVING_LICENCE") and f == "expiryDate":
                     states[f] = "NOT_APPLICABLE" if doc_type in ("AADHAAR", "PAN") else "NOT_DETECTED"
                 elif doc_type in ("AADHAAR", "PAN", "VOTER_ID") and f in ("issueDate", "nationality"):
                     states[f] = "NOT_APPLICABLE"
@@ -969,7 +971,7 @@ def extract(data: bytes) -> dict[str, Any]:
             field_confidences["expiryDate"] = 0.99
             field_states["expiryDate"] = "DETECTED"
 
-    # 5. QR Code Detection & Cross-Validation
+    # 6. QR Code Detection & Cross-Validation
     qr_info = _extract_qr_info(data, fields, fields)
     if qr_info["qrDetected"]:
         notes.append(f"QR Code: Detected — Decoded: {qr_info['qrDecoded']} | Cryptographic Signature: {qr_info['qrSignatureStatus']}")
@@ -1002,8 +1004,11 @@ def extract(data: bytes) -> dict[str, Any]:
             field_confidences["address"] = 0.88
             field_states["address"] = "DETECTED"
 
-    # Overall Confidence Calculation
-    overall_conf = round(ocr_confidence if ocr_confidence is not None else 0.85, 3)
+    # Document-adaptive Field Extraction Confidence vs Raw Bounding Box OCR Confidence
+    valid_confs = [v for k, v in field_confidences.items() if v > 0.0 and field_states.get(k) in ("DETECTED", "LOW_CONFIDENCE")]
+    field_extraction_conf = round(sum(valid_confs) / len(valid_confs), 3) if valid_confs else 0.85
+    raw_ocr_conf = round(ocr_confidence if ocr_confidence is not None else 0.85, 3)
+    overall_conf = field_extraction_conf if valid_confs else raw_ocr_conf
 
     visual_zone_payload = {
         **fields,
@@ -1012,6 +1017,8 @@ def extract(data: bytes) -> dict[str, Any]:
         "issuingCountry": issuing_country,
         "fieldConfidences": field_confidences,
         "fieldStates": field_states,
+        "fieldExtractionConfidence": field_extraction_conf,
+        "rawOcrConfidence": raw_ocr_conf,
         "qrDetected": qr_info["qrDetected"],
         "qrDecoded": qr_info["qrDecoded"],
         "qrStatus": qr_info["qrStatus"],
@@ -1035,6 +1042,8 @@ def extract(data: bytes) -> dict[str, Any]:
         "fields": fields,
         "visualZone": visual_zone_payload,
         "confidence": overall_conf,
+        "fieldExtractionConfidence": field_extraction_conf,
+        "rawOcrConfidence": raw_ocr_conf,
         "fieldConfidences": field_confidences,
         "fieldStates": field_states,
         "mrzValid": mrz_valid,
