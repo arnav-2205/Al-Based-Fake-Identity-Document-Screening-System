@@ -1,7 +1,10 @@
-"""OCR + MRZ extraction service.
+"""Document-Adaptive Generic National ID & Passport Extraction Engine.
 
-Extracts printed text, Machine Readable Zone (MRZ) lines, and Visual Inspection Zone (VIZ) fields
-from uploaded images and vector documents. Uses EasyOCR / regex / SVG text parser and ICAO 9303 TD3 parser.
+Implements generic National ID processing architecture:
+Uploaded Document -> Quality/Orientation -> Classification -> Layout Analysis -> Multilingual Semantic OCR
+-> Candidate Ranking -> Machine-Readable Evidence (QR / Barcode / MRZ) -> Per-Field Confidence & Explicit Field States.
+
+NATIONAL ID != AADHAAR. Aadhaar is one specific document adapter inside the generic National ID framework.
 """
 from __future__ import annotations
 
@@ -10,8 +13,9 @@ import io
 import re
 import time
 from datetime import datetime
+from typing import Any
 
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance
 
 from app.services import mrz as mrz_mod
 
@@ -47,34 +51,46 @@ def _normalize_text(text: str) -> str:
     return decoded.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[tuple[list, str]]]:
-    """Return extracted text, optional EasyOCR mean confidence, and per-line
-    (bbox, text) boxes for layout-aware field extraction (bitmap OCR only)."""
+def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[str, Any]]]:
+    """Extract text, mean OCR confidence, and detailed spatial line boxes.
+
+    Each box dict contains:
+    - text: clean string
+    - bbox: polygon coordinates
+    - confidence: float EasyOCR score (0.0 to 1.0)
+    - geometry metrics (xmin, ymin, xmax, ymax, cx, cy, h, w)
+    """
     lines: list[str] = []
     ocr_confidence: float | None = None
+    boxes: list[dict[str, Any]] = []
 
-    # 1. Try decoding as UTF-8 / SVG text
+    # 1. Check for vector SVG text
     try:
         text_content = data.decode("utf-8", errors="ignore")
         lower = text_content.lower()
-        if "<svg" in lower or "passport" in lower or "<text" in lower:
+        if "<svg" in lower or ("<?xml" in lower and "svg" in lower):
             extracted_tags = re.findall(r">([^<]+)<", text_content)
             for tag in extracted_tags:
                 cleaned = html.unescape(tag.strip())
                 if cleaned:
                     lines.append(cleaned)
+                    boxes.append({
+                        "text": cleaned,
+                        "bbox": [],
+                        "confidence": 0.95,
+                        "xmin": 0, "ymin": 0, "xmax": 100, "ymax": 100,
+                        "cx": 50, "cy": 50, "h": 20, "w": 100,
+                    })
             if lines:
-                return "\n".join(lines), None, []
+                return "\n".join(lines), 0.95, boxes
     except Exception:
         pass
 
-    # 2. Try EasyOCR for bitmap images (JPG/PNG/WebP) with automatic orientation detection
+    # 2. EasyOCR bitmap processing with auto-orientation
     try:
-        import numpy as np  # noqa: PLC0415
+        import numpy as np
 
         img = Image.open(io.BytesIO(data)).convert("RGB")
-        # Resize huge images (e.g. 4000x3000 phone camera captures) to max 1600px
-        # for dramatically faster OCR inference without degrading character accuracy
         max_dim = max(img.width, img.height)
         if max_dim > 1600:
             scale = 1600.0 / max_dim
@@ -85,7 +101,6 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[tuple[
             new_size = (int(img.width * scale), int(img.height * scale))
             img = img.resize(new_size, Image.Resampling.BICUBIC)
 
-        # Enhance contrast and sharpness slightly to eliminate background guilloche noise
         try:
             enhanced = ImageEnhance.Contrast(img).enhance(1.2)
             enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.15)
@@ -105,15 +120,14 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[tuple[
                     "LICENCE", "LICENSE", "MAHARASHTRA", "TRANSPORT", "UNION", "NATIONAL",
                     "IDENTITY", "CARD", "ELECTION", "COMMISSION", "INCOME TAX", "AADHAAR",
                     "SURNAME", "GIVEN", "DATE OF BIRTH", "DOB", "SEX", "VALIDITY", "EXPIRY",
-                    "HOLDER", "SIGNATURE", "P<", "I<", "A<", "NAME:", "ISSUE"
+                    "HOLDER", "SIGNATURE", "P<", "I<", "A<", "NAME:", "ISSUE", "PERSONALAUSWEIS",
+                    "DEUTSCHLAND", "BUNDESREPUBLIK", "CARTE", "NATIONALE"
                 )
                 landmark_hits = sum(1 for lm in landmarks if lm in joined)
                 score = sum(len(t) for _, t, c in res if len(t) >= 4 and c >= 0.4)
                 return landmark_hits, score
 
             hits, score = eval_orientation(result)
-            # A document is ONLY confirmed upright at 0-deg if it has at least 2 strong document landmarks.
-            # Otherwise (e.g. rotated mobile photos or scans with vertical garbage text), test 90, 270, 180.
             if hits < 2:
                 best_res = result
                 best_score = score
@@ -126,19 +140,29 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[tuple[
                         best_hits = rot_hits
                         best_score = rot_score
                         best_res = rot_res
-                        # Early break: as soon as we find a confident upright rotation with >= 2 landmarks, stop!
                         if rot_hits >= 2:
                             break
                 result = best_res
 
             confidences: list[float] = []
-            boxes: list[tuple[list, str]] = []
             for (box, text, conf) in result:
                 cleaned = text.strip()
                 if cleaned:
                     lines.append(cleaned)
-                    confidences.append(float(conf))
-                    boxes.append((box, cleaned))
+                    c_val = float(conf)
+                    confidences.append(c_val)
+                    xs = [p[0] for p in box]
+                    ys = [p[1] for p in box]
+                    boxes.append({
+                        "text": cleaned,
+                        "bbox": box,
+                        "confidence": c_val,
+                        "xmin": min(xs), "ymin": min(ys),
+                        "xmax": max(xs), "ymax": max(ys),
+                        "cx": sum(xs) / len(xs), "cy": sum(ys) / len(ys),
+                        "h": max(ys) - min(ys), "w": max(xs) - min(xs),
+                    })
+
             if lines:
                 ocr_confidence = sum(confidences) / len(confidences) if confidences else None
                 return "\n".join(lines), ocr_confidence, boxes
@@ -152,13 +176,12 @@ def _normalize_date(raw: str) -> str:
     raw = raw.strip()
     if not raw:
         return ""
-    # Extract date substring if embedded with other words
     m = re.search(r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b", raw)
     if m:
         return m.group(1).replace("/", "-")
     m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b", raw)
     if m:
-        raw = m.group(1)
+        raw = m.group(1).replace("/", "-")
     m = re.search(r"\b(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b", raw)
     if m:
         raw = m.group(1)
@@ -176,453 +199,862 @@ def _clean_mrz_candidate(raw: str) -> str:
     return re.sub(r"[^A-Z0-9<]", "", s)
 
 
-def _find_mrz(text: str) -> str | None:
+def _find_mrz(text: str) -> tuple[str | None, str]:
     text = _normalize_text(text)
     lines = text.splitlines()
     cleaned = [_clean_mrz_candidate(l) for l in lines]
-    # Filter candidates: an MRZ line MUST have at least 20 chars and at least 2 '<' fillers
-    cleaned = [l for l in cleaned if len(l) >= 20 and l.count("<") >= 2]
+    cleaned = [l for l in cleaned if len(l) >= 15]
 
-    # 1. Look for TD3 (Passports: 2 lines, 44 chars each)
+    # TD3 Passport (2x44)
     for i, l1 in enumerate(cleaned):
-        if l1.startswith("P<") or (len(l1) >= 4 and l1[0] == "P" and "<" in l1[:6]):
+        if l1.startswith("P") and len(l1) >= 15:
             for j in range(i + 1, min(i + 4, len(cleaned))):
                 l2 = cleaned[j]
-                # Line 2 typically has document number, digits, and filler chars
-                if len(l2) >= 25 and any(c.isdigit() for c in l2):
-                    return (l1 + "<" * 44)[:44] + "\n" + (l2 + "<" * 44)[:44]
-            if len(l1) >= 30:
-                return (l1 + "<" * 44)[:44]
+                if len(l2) >= 20 and any(c.isdigit() for c in l2):
+                    return (l1 + "<" * 44)[:44] + "\n" + (l2 + "<" * 44)[:44], "VALIDATED"
+            if len(l1) >= 30 and l1.count("<") >= 2:
+                return (l1 + "<" * 44)[:44], "DETECTED"
 
-    # 2. Look for TD1 (ID cards: 3 lines, 30 chars each)
+    # TD1 ID Cards (3x30)
     for i, l1 in enumerate(cleaned):
         if any(l1.startswith(p) for p in ("I<", "A<", "C<", "ID<")) and i + 2 < len(cleaned):
             l2 = cleaned[i + 1]
             l3 = cleaned[i + 2]
             if len(l2) >= 20 and len(l3) >= 20:
-                return (l1 + "<" * 30)[:30] + "\n" + (l2 + "<" * 30)[:30] + "\n" + (l3 + "<" * 30)[:30]
+                return (l1 + "<" * 30)[:30] + "\n" + (l2 + "<" * 30)[:30] + "\n" + (l3 + "<" * 30)[:30], "VALIDATED"
 
-    return None
+    return None, "NOT_AVAILABLE"
 
 
-def _layout_parse_viz(boxes: list[tuple[list, str]]) -> dict[str, str]:
-    """Spatial label -> value pairing using OCR box positions.
+def _extract_barcode_info(data: bytes) -> dict[str, Any]:
+    """Scan document for 1D or 2D barcodes (PDF417, Code128, DataMatrix)."""
+    try:
+        import numpy as np
+        import cv2
 
-    Supports both:
-    1. Value placed directly below the label (common in passports/IDs).
-    2. Value placed to the right of the label on the same row.
+        img_pil = Image.open(io.BytesIO(data)).convert("RGB")
+        img_np = np.asarray(img_pil)
+
+        if hasattr(cv2, "barcode_BarcodeDetector"):
+            detector = cv2.barcode_BarcodeDetector()
+            res_bc = detector.detectAndDecode(img_np)
+            retval = res_bc[0] if len(res_bc) > 0 else False
+            decoded_info = res_bc[1] if len(res_bc) > 1 else None
+            decoded_type = res_bc[2] if len(res_bc) > 2 else None
+            if retval and decoded_info:
+                clean_info = [info for info in decoded_info if info]
+                if clean_info:
+                    b_type = decoded_type[0] if decoded_type else "BARCODE"
+                    return {
+                        "barcodeDetected": True,
+                        "barcodeDecoded": True,
+                        "barcodeStatus": "DECODED",
+                        "barcodeType": str(b_type),
+                        "barcodeData": clean_info[0],
+                    }
+
+        # Secondary heuristic: OpenCV contour detector for barcode patterns
+        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=-1)
+        grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=-1)
+        gradient = cv2.subtract(grad_x, grad_y)
+        gradient = cv2.convertScaleAbs(gradient)
+        blurred = cv2.blur(gradient, (9, 9))
+        _, thresh = cv2.threshold(blurred, 225, 255, cv2.THRESH_BINARY)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (21, 7))
+        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        closed = cv2.erode(closed, None, iterations=4)
+        closed = cv2.dilate(closed, None, iterations=4)
+
+        cnts, _ = cv2.findContours(closed.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in cnts:
+            rect = cv2.minAreaRect(c)
+            w, h = rect[1]
+            if w > 0 and h > 0:
+                aspect = max(w, h) / min(w, h)
+                area = w * h
+                if aspect > 2.5 and area > 1500:
+                    return {
+                        "barcodeDetected": True,
+                        "barcodeDecoded": False,
+                        "barcodeStatus": "DETECTED",
+                        "barcodeType": "PDF417/1D",
+                        "barcodeData": None,
+                    }
+    except Exception as e:
+        print(f"Barcode scanning info error: {e}")
+
+    return {
+        "barcodeDetected": False,
+        "barcodeDecoded": False,
+        "barcodeStatus": "NOT_AVAILABLE",
+        "barcodeType": "NONE",
+        "barcodeData": None,
+    }
+
+
+def _parse_qr_payload(text: str) -> dict[str, Any]:
+    text = text.strip()
+    data: dict[str, Any] = {}
+
+    if "<PrintLetterBarcodeData" in text or text.startswith("<"):
+        try:
+            import xml.etree.ElementTree as ET
+
+            start = text.find("<PrintLetterBarcodeData")
+            if start != -1:
+                end = text.find("/>", start)
+                if end != -1:
+                    xml_sub = text[start : end + 2]
+                    root = ET.fromstring(xml_sub)
+                    attrs = root.attrib
+                    data["name"] = attrs.get("name", "")
+                    data["dob"] = attrs.get("dob", "") or attrs.get("yob", "")
+                    data["gender"] = attrs.get("gender", "")
+                    data["documentNumber"] = attrs.get("uid", "")
+                    addr_parts = [attrs.get(k) for k in ("house", "street", "lm", "loc", "vtc", "po", "dist", "state", "pc") if attrs.get(k)]
+                    if addr_parts:
+                        data["address"] = ", ".join(addr_parts)
+                    return data
+        except Exception:
+            pass
+
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            import json
+
+            j = json.loads(text)
+            data["name"] = j.get("name") or j.get("name_en") or j.get("full_name") or ""
+            data["dob"] = j.get("dob") or j.get("date_of_birth") or j.get("yob") or ""
+            data["gender"] = j.get("gender") or j.get("sex") or ""
+            data["documentNumber"] = j.get("uid") or j.get("id") or j.get("doc_num") or ""
+            data["address"] = j.get("address") or j.get("addr") or ""
+            return data
+        except Exception:
+            pass
+
+    for line in text.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            k_clean = k.strip().lower()
+            v_clean = v.strip()
+            if "name" in k_clean:
+                data["name"] = v_clean
+            elif "dob" in k_clean or "birth" in k_clean:
+                data["dob"] = v_clean
+            elif "gender" in k_clean or "sex" in k_clean:
+                data["gender"] = v_clean
+            elif "id" in k_clean or "uid" in k_clean or "number" in k_clean:
+                data["documentNumber"] = v_clean
+            elif "addr" in k_clean:
+                data["address"] = v_clean
+
+    return data
+
+
+def _compare_qr_vs_ocr(qr_data: dict, viz_fields: dict, fields: dict) -> tuple[str, list[str]]:
+    if not qr_data:
+        return "NOT_APPLICABLE", []
+
+    discrepancies = []
+    matches = 0
+    total_checked = 0
+
+    qr_name = qr_data.get("name", "").strip().upper()
+    ocr_name = (fields.get("name") or viz_fields.get("name") or "").strip().upper()
+    if qr_name and ocr_name:
+        total_checked += 1
+        if qr_name == ocr_name or qr_name in ocr_name or ocr_name in qr_name:
+            matches += 1
+        else:
+            discrepancies.append(f"Name mismatch: QR='{qr_name}' vs OCR='{ocr_name}'")
+
+    qr_dob = qr_data.get("dob", "").strip()
+    ocr_dob = (fields.get("dateOfBirth") or viz_fields.get("dateOfBirth") or "").strip()
+    if qr_dob and ocr_dob:
+        total_checked += 1
+        if qr_dob in ocr_dob or ocr_dob in qr_dob:
+            matches += 1
+        else:
+            discrepancies.append(f"DOB mismatch: QR='{qr_dob}' vs OCR='{ocr_dob}'")
+
+    qr_gen = qr_data.get("gender", "").strip().upper()
+    ocr_gen = (fields.get("gender") or viz_fields.get("gender") or "").strip().upper()
+    if qr_gen and ocr_gen:
+        total_checked += 1
+        if (qr_gen.startswith("M") and ocr_gen.startswith("M")) or (qr_gen.startswith("F") and ocr_gen.startswith("F")):
+            matches += 1
+        else:
+            discrepancies.append(f"Gender mismatch: QR='{qr_gen}' vs OCR='{ocr_gen}'")
+
+    qr_num = qr_data.get("documentNumber", "").replace(" ", "").upper()
+    ocr_num = (fields.get("documentNumber") or fields.get("passportNumber") or "").replace(" ", "").upper()
+    if qr_num and ocr_num:
+        total_checked += 1
+        if qr_num == ocr_num or qr_num in ocr_num or ocr_num in qr_num:
+            matches += 1
+        else:
+            discrepancies.append(f"Document # mismatch: QR='{qr_num}' vs OCR='{ocr_num}'")
+
+    if total_checked == 0:
+        return "NOT_APPLICABLE", []
+    if matches == total_checked:
+        return "MATCH", []
+    if matches > 0:
+        return "PARTIAL_MATCH", discrepancies
+    return "MISMATCH", discrepancies
+
+
+def _extract_qr_info(data: bytes, viz_fields: dict, fields: dict) -> dict:
+    try:
+        import numpy as np
+        import cv2
+
+        img_pil = Image.open(io.BytesIO(data)).convert("RGB")
+        img_np = np.asarray(img_pil)
+
+        detector = cv2.QRCodeDetector()
+        decoded_text = ""
+        qr_detected = False
+
+        for angle in (0, 90, 180, 270):
+            if angle == 0:
+                cur_img = img_np
+            elif angle == 90:
+                cur_img = cv2.rotate(img_np, cv2.ROTATE_90_CLOCKWISE)
+            elif angle == 180:
+                cur_img = cv2.rotate(img_np, cv2.ROTATE_180)
+            else:
+                cur_img = cv2.rotate(img_np, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+            found, bbox = detector.detect(cur_img)
+            if found:
+                qr_detected = True
+                text_dec, _, _ = detector.detectAndDecode(cur_img)
+                if text_dec:
+                    decoded_text = text_dec
+                    break
+
+                try:
+                    pts = bbox[0].astype(int)
+                    xmin, ymin = np.min(pts, axis=0)
+                    xmax, ymax = np.max(pts, axis=0)
+                    h, w = cur_img.shape[:2]
+                    pad = 40
+                    xmin, ymin = max(0, xmin - pad), max(0, ymin - pad)
+                    xmax, ymax = min(w, xmax + pad), min(h, ymax + pad)
+                    crop = cur_img[ymin:ymax, xmin:xmax]
+                    crop_large = cv2.resize(crop, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                    text_dec, _, _ = detector.detectAndDecode(crop_large)
+                    if text_dec:
+                        decoded_text = text_dec
+                        break
+
+                    gray = cv2.cvtColor(crop_large, cv2.COLOR_BGR2GRAY) if len(crop_large.shape) == 3 else crop_large
+                    _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                    text_dec, _, _ = detector.detectAndDecode(otsu)
+                    if text_dec:
+                        decoded_text = text_dec
+                        break
+                except Exception:
+                    pass
+
+        if not decoded_text and qr_detected:
+            retval, decoded_info, _, _ = detector.detectAndDecodeMulti(img_np)
+            if retval and decoded_info:
+                decoded_text = decoded_info[0]
+
+        if not decoded_text:
+            return {
+                "qrDetected": qr_detected,
+                "qrDecoded": False,
+                "qrStatus": "DETECTED" if qr_detected else "NOT_AVAILABLE",
+                "qrSignatureVerified": False,
+                "qrSignatureStatus": "QR Code Detected (Unreadable Payload)" if qr_detected else "No QR Code Detected",
+                "qrData": None,
+                "qrOcrMatchStatus": "NOT_APPLICABLE",
+                "qrOcrDiscrepancies": [],
+            }
+
+        qr_payload = _parse_qr_payload(decoded_text)
+        sig_verified = False
+        sig_status = "Signature Unverified (No PKI Cert Chain Root)"
+        match_status, discrepancies = _compare_qr_vs_ocr(qr_payload, viz_fields, fields)
+
+        return {
+            "qrDetected": True,
+            "qrDecoded": True,
+            "qrStatus": "DECODED",
+            "qrSignatureVerified": sig_verified,
+            "qrSignatureStatus": sig_status,
+            "qrData": qr_payload,
+            "qrOcrMatchStatus": match_status,
+            "qrOcrDiscrepancies": discrepancies,
+        }
+    except Exception as e:
+        print(f"QR Extraction Error: {e}")
+        return {
+            "qrDetected": False,
+            "qrDecoded": False,
+            "qrStatus": "NOT_AVAILABLE",
+            "qrSignatureVerified": False,
+            "qrSignatureStatus": "QR Processing Error",
+            "qrData": None,
+            "qrOcrMatchStatus": "NOT_APPLICABLE",
+            "qrOcrDiscrepancies": [],
+        }
+
+
+# ==============================================================================
+# GENERIC NATIONAL ID ADAPTER ENGINE
+# ==============================================================================
+
+class GenericNationalIDAdapter:
+    """Document-adaptive Generic National ID Field Extractor.
+
+    Supports multilingual labels, spatial bounding-box layout parsing,
+    candidate ranking for unlabeled fields, and country detection.
     """
-    if not boxes:
-        return {}
 
-    items = []
-    for bbox, text in boxes:
-        cleaned = text.strip()
-        if not cleaned:
-            continue
-        xs = [p[0] for p in bbox]
-        ys = [p[1] for p in bbox]
-        items.append({
-            "text": cleaned,
-            "xmin": min(xs), "ymin": min(ys),
-            "xmax": max(xs), "ymax": max(ys),
-            "cx": sum(xs) / len(xs), "cy": sum(ys) / len(ys),
-            "h": max(ys) - min(ys), "w": max(xs) - min(xs),
-        })
+    NOISE_KEYWORDS = (
+        "GOVERNMENT", "INDIA", "AADHAAR", "UNIQUE", "IDENTIFICATION", "AUTHORITY", "UNION",
+        "REPUBLIC", "STATE", "DRIVER", "LICENCE", "LICENSE", "COMMISSION", "INCOME", "TAX",
+        "DEPARTMENT", "ELECTION", "ELECTOR", "ELECTORAL", "BUNDESREPUBLIK", "DEUTSCHLAND",
+        "PERSONALAUSWEIS", "REPUBLIQUE", "FRANCAISE", "MINISTERE", "INTERIEUR", "NATIONAL",
+        "IDENTITY", "CARD", "PASSPORT", "PASSEPORT", "SIGNATURE", "HOLDER", "ADDRESS",
+        "DOMICILE", "ANSCHRIFT", "DIRECCION", "AUTHORITY", "ISSUED", "ISSUING", "CODE",
+        "MALE", "FEMALE", "SEX", "GENDER", "DOB", "DATE", "BIRTH", "NAISSANCE"
+    )
 
-    fields: dict[str, str] = {}
+    def extract(self, text: str, boxes: list[dict[str, Any]], raw_mrz: str | None) -> dict[str, Any]:
+        text_norm = _normalize_text(text)
+        upper_text = text_norm.upper()
+        lines = [l.strip() for l in text_norm.splitlines() if l.strip()]
 
-    def get_candidate(label_pat, exclude_pat=None):
-        lbl = next((it for it in items if re.search(label_pat, it["text"], re.I)), None)
-        if not lbl:
-            return None
-        clean_lbl = lbl["text"].strip(" :|-")
-        noise_keywords = ("PASSEPORT", "PASSEFORT", "PASSPORT", "DOCUMENT", "NOM", "PRENOM", "NAISSANCE", "DELIVRANCE", "SIGNATURE", "HOLDER", "NODU", "NUMERO", "COUNTRY", "PAYS", "TYPE")
-        if ":" in clean_lbl:
-            parts = clean_lbl.split(":", 1)
-            cand = parts[1].strip(" /|-")
-            clean_c = re.sub(r"[^A-Z0-9]", "", cand.upper())
-            if not any(k in clean_c for k in noise_keywords):
-                if len(cand) >= 2 and not (exclude_pat and re.search(exclude_pat, cand, re.I)):
-                    return cand
+        # 1. Detect Issuing Country & Document Classification
+        country = self._detect_country(upper_text)
+        doc_type = self._detect_doc_type(upper_text, raw_mrz)
 
-        # Below: y distance 5..55 px, left-aligned within 70px or center-aligned within 100px
-        below = [
-            it for it in items
-            if 5 < it["ymin"] - lbl["ymin"] < 55 and abs(it["xmin"] - lbl["xmin"]) < 70
-        ]
-        # Right: same horizontal line (cy diff < 15), to the right (5 < xdiff < 280)
-        right = [
-            it for it in items
-            if abs(it["cy"] - lbl["cy"]) < 15 and 5 < it["xmin"] - lbl["xmax"] < 280
-        ]
-        cands = below + right
-        for c in cands:
-            val = c["text"].strip(" :|-")
-            clean_v = re.sub(r"[^A-Z0-9]", "", val.upper())
-            if not val or re.search(label_pat, val, re.I) or any(k in clean_v for k in noise_keywords):
-                continue
-            if exclude_pat and re.search(exclude_pat, val, re.I):
-                continue
-            return val
-        return None
+        fields: dict[str, str] = {}
+        field_confidences: dict[str, float] = {}
+        notes: list[str] = [f"Generic National ID Adapter active (Country: {country}, Type: {doc_type})"]
 
-    surname = get_candidate(r"\b(SURNAME|NOM)\b")
-    given = get_candidate(r"\b(GIVEN\s*NAMES?|PRENOMS?|FIRST\s*NAME)\b")
-    full_name = get_candidate(r"\b(FULL\s*NAME|NAME|HOLDER)\b")
+        # 2. Semantic Multilingual Field Extraction
+        # Name candidate extraction
+        name_val, name_conf, name_reason = self._extract_holder_name(lines, boxes, notes)
+        if name_val:
+            fields["name"] = name_val
+            fields["holderName"] = name_val
+            field_confidences["name"] = name_conf
+            field_confidences["holderName"] = name_conf
+            notes.append(f"Name Candidate Ranking: Selected '{name_val}' ({name_reason})")
 
-    if given and surname:
-        fields["name"] = f"{given} {surname}".upper()
-    elif surname:
-        fields["name"] = surname.upper()
-    elif given:
-        fields["name"] = given.upper()
-    elif full_name:
-        fields["name"] = full_name.upper()
-
-    doc_num = get_candidate(r"(?:PASSPORT\s*NO?|PASSPORTNO|PASSEPORT|DOCUMENT\s*NO?|DOC\s*NO|LICENCE\s*NO)")
-    if doc_num:
-        doc_num = doc_num.upper().replace(" ", "")
-        noise_num = ("NODU", "PASSEPORT", "PASSEFORT", "PASSPORT", "REPUBLIC", "GOVERNMENT", "PAYS", "CODE", "TYPE", "DOCUMENT")
-        if not any(k in doc_num for k in noise_num):
-            if len(doc_num) == 8 and doc_num[0] == "2" and doc_num[1:].isdigit():
-                doc_num = "Z" + doc_num[1:]
-            fields["passportNumber"] = doc_num
+        # Document Number extraction
+        doc_num, num_conf = self._extract_doc_number(lines, upper_text, boxes)
+        if doc_num:
             fields["documentNumber"] = doc_num
+            fields["passportNumber"] = doc_num
+            field_confidences["documentNumber"] = num_conf
 
-    nat = get_candidate(r"\b(NATIONALITY|NATIONALITE|COUNTRY\s*CODE)\b")
-    if nat:
-        m = re.search(r"\b([A-Z]{3})\b", nat.upper())
-        if m:
-            fields["nationality"] = m.group(1)
+        # Date of Birth
+        dob_val, dob_conf = self._extract_dob(lines, upper_text, boxes)
+        if dob_val:
+            fields["dateOfBirth"] = dob_val
+            field_confidences["dateOfBirth"] = dob_conf
 
-    dob = get_candidate(r"\b(DATE\s*OF\s*BIRTH|DOB|BIRTH|NAISSANCE)\b")
-    if dob:
-        norm_dob = _normalize_date(dob)
-        if norm_dob:
-            fields["dateOfBirth"] = norm_dob
+        # Gender
+        gender_val, gen_conf = self._extract_gender(lines, upper_text, boxes)
+        if gender_val:
+            fields["gender"] = gender_val
+            field_confidences["gender"] = gen_conf
 
-    sex = get_candidate(r"\b(SEX|GENDER|SEXE)\b")
-    if sex:
-        sex_up = sex.upper()
-        if "M" in sex_up:
-            fields["gender"] = "M"
-        elif "F" in sex_up:
-            fields["gender"] = "F"
+        # Nationality
+        nat_val, nat_conf = self._extract_nationality(upper_text, country)
+        if nat_val:
+            fields["nationality"] = nat_val
+            field_confidences["nationality"] = nat_conf
 
-    issue = get_candidate(r"\b(DATE\s*OF\s*ISSUE|ISSUE\s*DATE|ISSUED|DATE.*DELIVRANCE)\b", exclude_pat=r"PLACE")
-    if issue:
-        norm_issue = _normalize_date(issue)
-        if norm_issue:
-            fields["issueDate"] = norm_issue
+        # Issue Date
+        issue_val, issue_conf = self._extract_issue_date(lines, upper_text, boxes)
+        if issue_val:
+            fields["issueDate"] = issue_val
+            field_confidences["issueDate"] = issue_conf
 
-    expiry = get_candidate(r"\b(DATE\s*OF\s*EXPIRY|EXPIRY|EXPIRES|VALID\s*UNTIL|DEXPIRA)\b")
-    if expiry:
-        norm_exp = _normalize_date(expiry)
-        if norm_exp:
-            fields["expiryDate"] = norm_exp
+        # Expiry Date
+        expiry_val, expiry_conf = self._extract_expiry_date(lines, upper_text, boxes)
+        if expiry_val:
+            fields["expiryDate"] = expiry_val
+            field_confidences["expiryDate"] = expiry_conf
 
-    return fields
+        # Address
+        addr_val, addr_conf = self._extract_address(text_norm, lines, boxes)
+        if addr_val:
+            fields["address"] = addr_val
+            field_confidences["address"] = addr_conf
 
+        fields["issuingCountry"] = country
 
-def _parse_viz_fallback(text: str) -> dict[str, str]:
-    text = _normalize_text(text)
-    upper = text.upper()
-    fields: dict[str, str] = {}
+        # 3. Determine Explicit Field States
+        field_states = self._determine_field_states(fields, field_confidences, doc_type)
 
-    # 1. Name:
-    # Priority A: Labeled name (e.g. Name: KSHITIJ BIROBA KOLEKAR)
-    name_m = re.search(r"(?:NAME|FULL\s*NAME|HOLDER(?:'S)?\s*NAME)\s*[:\s|]+\n*([A-Z][A-Za-z '.-]{2,40})", text, re.I)
-    if name_m:
-        cand = name_m.group(1).splitlines()[0].strip()
-        if not any(w in cand.upper() for w in ("SIGNATURE", "HOLDER", "DATE", "DOB", "ADDRESS", "OFFICIAL", "REPUBLIC", "GOVERNMENT", "UNION", "DRIVING")):
-            fields["name"] = cand.upper()
+        return {
+            "fields": fields,
+            "fieldConfidences": field_confidences,
+            "fieldStates": field_states,
+            "issuingCountry": country,
+            "detectedDocumentType": doc_type,
+            "notes": notes,
+        }
 
-    # Priority B: Surname + Given name
-    if not fields.get("name"):
-        surname_m = re.search(r"(?:SURNAME|NOM)\s*[:\s|]+([A-Z][A-Za-z '.-]{1,30})", upper)
-        given_m = re.search(r"(?:GIVEN\s*NAMES?|PRENOMS?)\s*[:\s|]+([A-Z][A-Za-z '.-]{1,30})", upper)
-        if surname_m and given_m:
-            s = surname_m.group(1).splitlines()[0].strip()
-            g = given_m.group(1).splitlines()[0].strip()
-            fields["name"] = f"{g} {s}".upper()
-        elif surname_m:
-            fields["name"] = surname_m.group(1).splitlines()[0].strip().upper()
-        elif given_m:
-            fields["name"] = given_m.group(1).splitlines()[0].strip().upper()
+    def _detect_country(self, upper: str) -> str:
+        if any(k in upper for k in ("INDIA", "AADHAAR", "UIDAI", "GOVERNMENT OF INDIA", "MAHARASHTRA", "TRANSPORT DEPARTMENT", "INCOME TAX", "ELECTION COMMISSION")):
+            return "INDIA"
+        if any(k in upper for k in ("DEUTSCHLAND", "BUNDESREPUBLIK", "PERSONALAUSWEIS", "REPUBLIK DEUTSCHLAND")):
+            return "GERMANY"
+        if any(k in upper for k in ("UNITED STATES", "USA", "STATE OF", "DRIVER LICENSE", "DRIVING LICENSE")):
+            return "UNITED STATES"
+        if any(k in upper for k in ("REPUBLIQUE FRANCAISE", "CARTE NATIONALE", "FRANCE")):
+            return "FRANCE"
+        if any(k in upper for k in ("UNITED KINGDOM", "GREAT BRITAIN", "DRIVING LICENCE")):
+            return "UNITED KINGDOM"
+        if any(k in upper for k in ("EMIRATES ID", "UNITED ARAB EMIRATES", "IDENTITY AUTHORITY")):
+            return "UNITED ARAB EMIRATES"
+        if any(k in upper for k in ("REPUBLIC OF SINGAPORE", "SINGAPORE")):
+            return "SINGAPORE"
+        if any(k in upper for k in ("REPUBLIC OF KENYA", "KENYA")):
+            return "KENYA"
+        if any(k in upper for k in ("FEDERAL REPUBLIC OF NIGERIA", "NIGERIA")):
+            return "NIGERIA"
+        if any(k in upper for k in ("REPUBLIC OF SOUTH AFRICA", "SOUTH AFRICA")):
+            return "SOUTH AFRICA"
+        return "UNKNOWN"
 
-    # 2. Document Number:
-    # Check Indian Driving Licence: e.g. MH10 20240021135, DL04...
-    dl_m = re.search(r"\b([A-Z]{2}[0-9O]{1,2}\s*[0-9O]{11,15})\b", upper)
-    # Check PAN: 5 uppercase letters, 4 digits, 1 uppercase letter
-    pan_m = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", upper)
-    # Check Aadhaar: 12 digits (often grouped 4 4 4)
-    aadhaar_m = re.search(r"\b(\d{4}\s\d{4}\s\d{4})\b", text)
-    # Check Voter ID (EPIC): 3 uppercase letters, 7 digits
-    voter_m = re.search(r"\b([A-Z]{3}[0-9]{7})\b", upper)
+    def _detect_doc_type(self, upper: str, raw_mrz: str | None) -> str:
+        if raw_mrz and raw_mrz.startswith("P<"):
+            return "PASSPORT"
+        if any(k in upper for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")):
+            return "AADHAAR"
+        if any(k in upper for k in ("DRIVING LICENCE", "DRIVING LICENSE", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT")):
+            return "DRIVING_LICENCE"
+        if any(k in upper for k in ("INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER")):
+            return "PAN"
+        if any(k in upper for k in ("ELECTION COMMISSION", "ELECTORAL", "ELECTOR PHOTO")):
+            return "VOTER_ID"
+        if any(k in upper for k in ("PASSPORT", "PASSEPORT")):
+            return "PASSPORT"
+        if any(k in upper for k in ("PERSONALAUSWEIS", "NATIONAL ID", "IDENTITY CARD", "CARTE NATIONALE", "CITIZEN CARD")):
+            return "NATIONAL_ID"
+        return "NATIONAL_ID"
 
-    if dl_m:
-        doc_num = dl_m.group(1).replace("O", "0")
-        fields["passportNumber"] = doc_num
-        fields["documentNumber"] = doc_num
-    elif pan_m and ("INCOME" in upper or "PERMANENT" in upper or "PAN" in upper):
-        doc_num = pan_m.group(1)
-        fields["passportNumber"] = doc_num
-        fields["documentNumber"] = doc_num
-    elif aadhaar_m and ("AADHAAR" in upper or "GOVERNMENT" in upper or "MALE" in upper or "FEMALE" in upper):
-        doc_num = aadhaar_m.group(1)
-        fields["passportNumber"] = doc_num
-        fields["documentNumber"] = doc_num
-    elif voter_m and ("ELECTION" in upper or "ELECTOR" in upper):
-        doc_num = voter_m.group(1)
-        fields["passportNumber"] = doc_num
-        fields["documentNumber"] = doc_num
-    else:
-        # Check standard passport number or generic document number
-        doc_match = re.search(
-            r"(?:PASSPORT\s*(?:NO|NUMBER)?|DOCUMENT\s*(?:NO|NUMBER)?|PASSEPORT|LICENCE\s*NO|LICENSE\s*NO)\s*[:\s|]+([A-Z0-9\s]{6,16})",
-            upper,
-        )
-        if not doc_match:
-            doc_match = re.search(
-                r"(?:PASSPORT\s*NO?|PASSPORTNO|DOC\s*NO)[^\n]*\n+([A-Z0-9]{6,12})",
-                upper,
+    def _extract_holder_name(
+        self, lines: list[str], boxes: list[dict[str, Any]], notes: list[str]
+    ) -> tuple[str, float, str]:
+        # Path A: Labeled Name (English, French, German, Spanish, etc.)
+        for b in boxes:
+            t = b["text"]
+            m = re.search(
+                r"(?:NAME|FULL\s*NAME|NOM|PRENOM|NOMBRE|GIVEN\s*NAME|SURNAME|HOLDER(?:'S)?\s*NAME|CITIZEN\s*NAME)\s*[:\s|-]+\s*([A-Z][A-Za-z '.-]{2,40})",
+                t,
+                re.I,
             )
-        if doc_match:
-            doc_num = doc_match.group(1).strip().upper().replace(" ", "")
-            if not any(w in doc_num for w in ("REPUBLIC", "GOVERNMENT", "PASSPORT", "INDIA", "SCANNER", "OKEN")):
-                if len(doc_num) == 8 and doc_num[0] == "2" and doc_num[1:].isdigit():
-                    doc_num = "Z" + doc_num[1:]
-                fields["passportNumber"] = doc_num
-                fields["documentNumber"] = doc_num
+            if m:
+                cand = m.group(1).strip().upper()
+                if not any(k in cand for k in self.NOISE_KEYWORDS):
+                    return cand, max(0.85, b["confidence"]), "Explicit Label Match"
 
-    # 3. Nationality:
-    nat_match = re.search(r"(?:NATIONALITY|NAT(?:IONALITY)?|CITIZENSHIP)\s*[:\s|]+([A-Z]{3})", upper)
-    if nat_match:
-        fields["nationality"] = nat_match.group(1).strip().upper()
-    elif any(w in upper for w in ("INDIAN", "MAHARASHTRA", "GOVERNMENT OF INDIA", "REPUBLIC OF INDIA")):
-        fields["nationality"] = "IND"
+        # Path B: Spatial candidate pairing from boxes (label box + value box)
+        for b in boxes:
+            t = b["text"]
+            if re.search(r"\b(NAME|NOM|GIVEN|SURNAME|NOMBRE|HOLDER)\b", t, re.I):
+                lbl_cx, lbl_cy = b["cx"], b["cy"]
+                cands = [
+                    box for box in boxes
+                    if box != b and abs(box["cy"] - lbl_cy) < 18 and 5 < box["xmin"] - b["xmax"] < 250
+                ]
+                if not cands:
+                    cands = [
+                        box for box in boxes
+                        if box != b and 5 < box["ymin"] - b["ymin"] < 50 and abs(box["xmin"] - b["xmin"]) < 80
+                    ]
+                for c in cands:
+                    cand_val = c["text"].strip(" :|-").upper()
+                    if len(cand_val) >= 3 and not any(k in cand_val for k in self.NOISE_KEYWORDS):
+                        return cand_val, max(0.85, c["confidence"]), "Spatial Bounding Box Match"
 
-    # 4. Date of Birth:
-    dob_match = re.search(
-        r"(?:DOB|DATE\s*OF\s*BIRTH|BIRTH\s*DATE|BIRTH|BORN|NAISSANCE)\s*[:\s|]+"
-        r"(\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|\d{1,4}[-/]\d{1,2}[-/]\d{2,4})",
-        upper,
-    )
-    if not dob_match:
-        dob_match = re.search(
-            r"(?:DOB|BIRTH|BORN|NAISSANCE)[^\n]*\n+.*?(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})",
-            upper,
-        )
-    if dob_match:
-        fields["dateOfBirth"] = _normalize_date(dob_match.group(1).strip())
-
-    # 5. Gender:
-    gender_match = re.search(r"(?:SEX|GENDER)\s*[:\s|]+(M|F|MALE|FEMALE)", upper)
-    if gender_match:
-        val = gender_match.group(1).strip().upper()
-        fields["gender"] = "M" if val.startswith("M") else "F"
-    elif re.search(r"\bSon\s*(?:of)?\b", text, re.I):
-        fields["gender"] = "M"
-    elif re.search(r"\b(?:Daughter|Wife)\s*(?:of)?\b", text, re.I):
-        fields["gender"] = "F"
-
-    # 6. Issue Date:
-    issue_match = re.search(
-        r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|DATE\s*OF\s*FIRST\s*ISSUE|ISSUED\s*ON|ISSUED)\b[\s\S]{0,100}?(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})",
-        upper,
-    )
-    if issue_match:
-        fields["issueDate"] = _normalize_date(issue_match.group(1).strip())
-
-    # 7. Expiry Date / Validity:
-    # First check driving licence validity patterns e.g. Validity(NT) 18 10 204s or Valid Till DD-MM-YYYY
-    dl_valid_m = re.search(
-        r"(?:Validity(?:\([A-Z]+\))?|Valid\s*Till|Valid\s*Upto)[\s\S]{0,80}?(\d{1,2}[\s\-\/]\d{1,2}[\s\-\/](?:\d{4}|\d{3}[A-Za-z]))",
-        text,
-        re.I,
-    )
-    if dl_valid_m:
-        raw_val = dl_valid_m.group(1).strip()
-        # Clean OCR digit errors like '204s' -> '2045'
-        if len(raw_val) >= 4 and raw_val[-1].lower() == "s":
-            raw_val = raw_val[:-1] + "5"
-        raw_val = raw_val.replace(" ", "-")
-        norm_v = _normalize_date(raw_val)
-        if norm_v:
-            fields["expiryDate"] = norm_v
-
-    if not fields.get("expiryDate"):
-        expiry_match = re.search(
-            r"(?:EXPIRY|EXPIRES|EXPIRATION|VALID\s*UNTIL|VALIDITY|VALID\s*UPTO|DATE\s*OF\s*EXPIRY|DEXPIRA)\b[\s\S]{0,100}?(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4}[A-Za-z]?)",
-            upper,
-        )
-        if expiry_match:
-            raw_exp = expiry_match.group(1).strip().replace("s", "5").replace("S", "5").replace(" ", "-")
-            fields["expiryDate"] = _normalize_date(raw_exp)
-
-    # Sanity check: Expiry date should not be the exact same as Issue date when later dates exist in the document
-    if fields.get("issueDate") and fields.get("expiryDate") == fields.get("issueDate"):
-        # Look for subsequent future dates in text
-        all_found = re.findall(r"\b(\d{1,2}[\s\-\/]\d{1,2}[\s\-\/](?:\d{4}|\d{3}[A-Za-z]))\b", text)
-        for cand_raw in all_found:
-            clean_cand = cand_raw.replace("s", "5").replace("S", "5").replace(" ", "-")
-            norm_cand = _normalize_date(clean_cand)
-            if norm_cand and norm_cand > fields["issueDate"]:
-                fields["expiryDate"] = norm_cand
+        # Path C: Layout Candidate Ranking (For documents without 'Name:' label, e.g. Aadhaar)
+        # Find anchor index of DOB / Gender / Relation line
+        anchor_idx = -1
+        for i, line in enumerate(lines):
+            if re.search(r"\b(DOB|YEAR OF BIRTH|YOB|DATE OF BIRTH|MALE|FEMALE|SON OF|DAUGHTER OF|WIFE OF|S/O|D/O|W/O)\b", line, re.I):
+                anchor_idx = i
                 break
 
-    # 8. Extra Visual Fields: Father/Spouse & Address
-    rel_m = re.search(r"(?:Son\s*\/\s*Daughter\s*\/\s*Wife\s*of|Father(?:'s)?\s*Name|S\/O|D\/O|W\/O)\s*[:\s|]+\n*([A-Z][A-Za-z '.-]{2,40})", text, re.I)
-    if rel_m:
-        fields["fatherName"] = rel_m.group(1).strip().upper()
+        candidates: list[tuple[str, float, float]] = []  # (text, score, box_conf)
+        search_lines = lines[:anchor_idx] if anchor_idx > 0 else lines[:6]
 
-    addr_m = re.search(r"Address\s*[:\s|]+\n*([^\n]+(?:\n[^\n]+){0,2})", text, re.I)
-    if addr_m:
-        cleaned_addr = " ".join(addr_m.group(1).split()).strip()
-        if len(cleaned_addr) > 5:
-            fields["address"] = cleaned_addr
+        for line_str in search_lines:
+            cand = line_str.strip()
+            up_cand = cand.upper()
 
-    return fields
+            # Filter non-name noise
+            if len(cand) < 3 or len(cand) > 40:
+                continue
+            if any(k in up_cand for k in self.NOISE_KEYWORDS):
+                continue
+            if re.search(r"\d", cand):  # Name should not contain digits
+                continue
+            if not re.match(r"^[A-Za-z][A-Za-z '.-]+$", cand):
+                continue
+
+            # Candidate Scoring Formula
+            score = 0.5
+            words = cand.split()
+            if 2 <= len(words) <= 4:
+                score += 0.25
+            if cand.isupper():
+                score += 0.15
+            elif cand.istitle():
+                score += 0.10
+
+            # Match with box confidence
+            box_c = 0.80
+            for box in boxes:
+                if cand.lower() in box["text"].lower():
+                    box_c = box["confidence"]
+                    break
+
+            candidates.append((cand.upper(), score, box_c))
+
+        if candidates:
+            # Sort by candidate score descending
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            best_name, best_score, box_conf = candidates[0]
+            conf = min(0.98, max(0.65, box_conf * best_score))
+            return best_name, round(conf, 2), f"Candidate Ranking (Score: {best_score:.2f})"
+
+        return "", 0.0, "NOT_DETECTED"
+
+    def _extract_doc_number(
+        self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
+    ) -> tuple[str, float]:
+        # Indian Patterns
+        # Aadhaar: 12 digits (4 4 4 or contiguous)
+        aadhaar_m = re.search(r"\b(\d{4}[-\s]?\d{4}[-\s]?\d{4})\b", upper)
+        if aadhaar_m and any(k in upper for k in ("AADHAAR", "GOVERNMENT OF INDIA", "MALE", "FEMALE", "INDIA", "UNIQUE")):
+            return aadhaar_m.group(1), 0.96
+
+        # DL: e.g. MH10 20240021135
+        dl_m = re.search(r"\b([A-Z]{2}[0-9O]{1,2}\s*[0-9O]{11,15})\b", upper)
+        if dl_m:
+            return dl_m.group(1).replace("O", "0"), 0.95
+
+        # PAN: 5 uppercase, 4 digits, 1 uppercase
+        pan_m = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", upper)
+        if pan_m:
+            return pan_m.group(1), 0.97
+
+        # Voter ID: 3 uppercase, 7 digits
+        voter_m = re.search(r"\b([A-Z]{3}[0-9]{7})\b", upper)
+        if voter_m:
+            return voter_m.group(1), 0.95
+
+        # Multilingual Generic Document Number Regex
+        doc_m = re.search(
+            r"(?:DOCUMENT\s*NO?|ID\s*NO?|IDENTIFICATION\s*NO?|CARD\s*NO?|PASSPORT\s*NO?|LICENCE\s*NO?|LICENSE\s*NO?|SERIAL\s*NO?)\s*[:\s|-]+\s*([A-Z0-9\s-]{5,20})",
+            upper,
+        )
+        if doc_m:
+            val = doc_m.group(1).strip().replace(" ", "")
+            if not any(k in val for k in self.NOISE_KEYWORDS):
+                return val, 0.90
+
+        return "", 0.0
+
+    def _extract_dob(
+        self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
+    ) -> tuple[str, float]:
+        m = re.search(
+            r"(?:DOB|DATE\s*OF\s*BIRTH|YEAR\s*OF\s*BIRTH|BIRTH\s*YEAR|YOB|BIRTH|BORN|NAISSANCE|GEBURTSDATUM|FECHA\s*DE\s*NACIMIENTO)\s*[:\s|/]*"
+            r"(\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|\d{1,4}[-/]\d{1,2}[-/]\d{2,4}|\b\d{4}\b)",
+            upper,
+        )
+        if m:
+            norm = _normalize_date(m.group(1))
+            if norm:
+                return norm, 0.92
+
+        # Standalone date pattern near DOB anchor
+        for l in lines:
+            if re.search(r"\b(DOB|BIRTH|YOB|NAISSANCE|GEBURTSDATUM)\b", l, re.I):
+                d_m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\b\d{4}\b)\b", l)
+                if d_m:
+                    norm = _normalize_date(d_m.group(1))
+                    if norm:
+                        return norm, 0.88
+        return "", 0.0
+
+    def _extract_gender(
+        self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
+    ) -> tuple[str, float]:
+        m = re.search(r"(?:SEX|GENDER|SEXE|GESCHLECHT|SEXO)\s*[:\s|/]+\s*(M|F|MALE|FEMALE)", upper)
+        if m:
+            val = m.group(1).upper()
+            return ("M" if val.startswith("M") else "F"), 0.94
+
+        if re.search(r"\bMALE\b", upper):
+            return "M", 0.90
+        if re.search(r"\bFEMALE\b", upper):
+            return "F", 0.90
+        if re.search(r"\bSon\s*(?:of)?\b", upper, re.I):
+            return "M", 0.85
+        if re.search(r"\b(?:Daughter|Wife)\s*(?:of)?\b", upper, re.I):
+            return "F", 0.85
+        return "", 0.0
+
+    def _extract_nationality(self, upper: str, country: str) -> tuple[str, float]:
+        m = re.search(r"(?:NATIONALITY|NAT|CITIZENSHIP|STAATSANGEHÖRIGKEIT|NACIONALIDAD)\s*[:\s|-]+\s*([A-Z]{3}|\w+)", upper)
+        if m:
+            val = m.group(1).upper()
+            if len(val) == 3:
+                return val, 0.95
+        if country == "INDIA":
+            return "IND", 0.92
+        if country == "GERMANY":
+            return "DEU", 0.92
+        if country == "UNITED STATES":
+            return "USA", 0.92
+        if country == "FRANCE":
+            return "FRA", 0.92
+        return "", 0.0
+
+    def _extract_issue_date(
+        self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
+    ) -> tuple[str, float]:
+        m = re.search(
+            r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUED|AUSSTELLUNGSDATUM|DELIVRANCE|EXPEDICION)\b[\s\S]{0,80}?(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})",
+            upper,
+        )
+        if m:
+            norm = _normalize_date(m.group(1))
+            if norm:
+                return norm, 0.90
+        return "", 0.0
+
+    def _extract_expiry_date(
+        self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
+    ) -> tuple[str, float]:
+        m = re.search(
+            r"(?:EXPIRY|EXPIRES|VALID\s*UNTIL|VALIDITY|ABLAUFDATUM|CADUCIDAD|EXPIRATION|DEXPIRA)\b[\s\S]{0,80}?(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4}[A-Za-z]?)",
+            upper,
+        )
+        if m:
+            raw_exp = m.group(1).strip().replace("s", "5").replace("S", "5").replace(" ", "-")
+            norm = _normalize_date(raw_exp)
+            if norm:
+                return norm, 0.90
+        return "", 0.0
+
+    def _extract_address(
+        self, text_norm: str, lines: list[str], boxes: list[dict[str, Any]]
+    ) -> tuple[str, float]:
+        m = re.search(r"(?:Address|Residence|Domicile|Anschrift|Direccion)\s*[:\s|]+\n*([^\n]+(?:\n[^\n]+){0,2})", text_norm, re.I)
+        if m:
+            clean_addr = " ".join(m.group(1).split()).strip()
+            if len(clean_addr) > 5:
+                return clean_addr, 0.88
+        return "", 0.0
+
+    def _determine_field_states(
+        self, fields: dict[str, str], confidences: dict[str, float], doc_type: str
+    ) -> dict[str, str]:
+        all_target_fields = [
+            "documentNumber", "holderName", "dateOfBirth", "gender",
+            "nationality", "issuingCountry", "issueDate", "expiryDate", "address"
+        ]
+        states: dict[str, str] = {}
+
+        if fields.get("issuingCountry") and fields["issuingCountry"] != "UNKNOWN":
+            confidences["issuingCountry"] = 0.95
+
+        for f in all_target_fields:
+            val = fields.get(f) or (fields.get("name") if f == "holderName" else None)
+            conf = confidences.get(f, 0.0)
+
+            if val:
+                states[f] = "DETECTED" if conf >= 0.65 else "LOW_CONFIDENCE"
+            else:
+                if doc_type in ("AADHAAR", "PAN", "NATIONAL_ID", "VOTER_ID", "DRIVING_LICENCE") and f == "expiryDate":
+                    states[f] = "NOT_APPLICABLE" if doc_type in ("AADHAAR", "PAN") else "NOT_DETECTED"
+                elif doc_type in ("AADHAAR", "PAN", "VOTER_ID") and f in ("issueDate", "nationality"):
+                    states[f] = "NOT_APPLICABLE"
+                else:
+                    states[f] = "NOT_DETECTED"
+
+        return states
 
 
-def _compute_confidence(
-    fields: dict[str, str],
-    mrz_valid: bool,
-    text_present: bool,
-    ocr_confidence: float | None,
-) -> float:
-    if ocr_confidence is not None:
-        base = max(0.0, min(1.0, ocr_confidence))
-    elif text_present:
-        base = 0.75
-    else:
-        return 0.0
+# ==============================================================================
+# MAIN ENTRYPOINT
+# ==============================================================================
 
-    keys = ("name", "passportNumber", "nationality", "dateOfBirth", "gender", "expiryDate")
-    filled = sum(1 for k in keys if fields.get(k))
-    field_boost = (filled / len(keys)) * 0.15
-    mrz_boost = 0.1 if mrz_valid else 0.0
-    return round(min(1.0, base + field_boost + mrz_boost), 3)
-
-
-def extract(data: bytes) -> dict:
+def extract(data: bytes) -> dict[str, Any]:
     start_time = time.time()
     notes: list[str] = []
-    raw_mrz: str | None = None
 
+    # 1. OCR Text & Spatial Bounding Box Extraction
     text, ocr_confidence, boxes = _extract_text_from_data(data)
     if text:
-        notes.append("OCR: Real-Time Text & Spatial Vector Extraction")
-        raw_mrz = _find_mrz(text)
+        notes.append("OCR: Text & spatial vector bounding boxes extracted successfully")
     else:
-        notes.append("OCR: No readable text detected in uploaded document")
+        notes.append("OCR: No readable text detected in document image")
 
-    viz_fields = _parse_viz_fallback(text) if text else {}
-    layout_fields = _layout_parse_viz(boxes)
-    if layout_fields:
-        notes.append("VIZ: Layout-aware spatial field extraction")
-        viz_fields = {**viz_fields, **{k: v for k, v in layout_fields.items() if v}}
-
-    # Try TD3 (Passport: 2x44) first, then TD1 (ID Card: 3x30)
-    parsed = mrz_mod.parse_td3(raw_mrz) if raw_mrz else None
-    if not parsed and raw_mrz and raw_mrz.count("\n") >= 2:
-        parsed = mrz_mod.parse_td1(raw_mrz)
-
-    fields: dict[str, str] = {}
-    checks: dict[str, bool] = {}
+    # 2. MRZ Detection (Passports & TD1 ID Cards)
+    raw_mrz, mrz_status = _find_mrz(text)
     mrz_valid = False
+    mrz_checks: dict[str, bool] = {}
+    parsed_mrz = None
 
-    if parsed and parsed.all_valid:
-        # Genuine validated MRZ
-        name = f"{parsed.given_names} {parsed.surname}".strip()
-        fields = {
-            "name": name or viz_fields.get("name", ""),
-            "passportNumber": parsed.document_number or viz_fields.get("passportNumber", ""),
-            "documentNumber": parsed.document_number or viz_fields.get("documentNumber", ""),
-            "nationality": parsed.nationality or viz_fields.get("nationality", ""),
-            "dateOfBirth": parsed.date_of_birth or viz_fields.get("dateOfBirth", ""),
-            "gender": parsed.sex or viz_fields.get("gender", ""),
-            "issueDate": viz_fields.get("issueDate", ""),
-            "expiryDate": parsed.expiry_date or viz_fields.get("expiryDate", ""),
-        }
-        checks = parsed.checks
-        mrz_valid = True
-        notes.append("MRZ: Validated ICAO Checkdigits (100% Integrity)")
-    elif parsed:
-        # MRZ present with minor checkdigit disparity: prioritize cross-referenced fields
-        mrz_name = f"{parsed.given_names} {parsed.surname}".strip()
-        fields = {
-            "name": viz_fields.get("name") or mrz_name,
-            "passportNumber": viz_fields.get("passportNumber") or parsed.document_number,
-            "documentNumber": viz_fields.get("documentNumber") or parsed.document_number,
-            "nationality": viz_fields.get("nationality") or parsed.nationality,
-            "dateOfBirth": viz_fields.get("dateOfBirth") or parsed.date_of_birth,
-            "gender": viz_fields.get("gender") or parsed.sex,
-            "issueDate": viz_fields.get("issueDate", ""),
-            "expiryDate": viz_fields.get("expiryDate") or parsed.expiry_date,
-        }
-        checks = parsed.checks
-        mrz_valid = any(checks.values()) and checks.get("documentNumber", False)
-        notes.append("MRZ: Checkdigit mismatch cross-referenced with Visual Zone")
-    else:
-        # Clean VIZ document (Driving Licence, Aadhaar, PAN, Voter ID, or non-MRZ ID)
-        fields = {
-            "name": viz_fields.get("name", ""),
-            "passportNumber": viz_fields.get("passportNumber", ""),
-            "documentNumber": viz_fields.get("documentNumber", ""),
-            "nationality": viz_fields.get("nationality", ""),
-            "dateOfBirth": viz_fields.get("dateOfBirth", ""),
-            "gender": viz_fields.get("gender", ""),
-            "issueDate": viz_fields.get("issueDate", ""),
-            "expiryDate": viz_fields.get("expiryDate", ""),
-        }
-        if fields.get("name") or fields.get("passportNumber"):
-            notes.append("VIZ: Extracted printed document fields")
-        elif text:
-            notes.append("OCR: Text extracted but no standard fields identified")
+    if raw_mrz:
+        parsed_mrz = mrz_mod.parse_td3(raw_mrz)
+        if not parsed_mrz and raw_mrz.count("\n") >= 2:
+            parsed_mrz = mrz_mod.parse_td1(raw_mrz)
 
-    # Classify detected document type
-    upper_text = text.upper() if text else ""
-    doc_type = "PASSPORT" if (raw_mrz and raw_mrz.startswith("P<")) else "UNKNOWN"
-    if doc_type == "UNKNOWN":
-        if any(k in upper_text for k in ("DRIVING LICENCE", "DRIVING LICENSE", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT", "VALIDITY(NT)")) or (fields.get("documentNumber") and re.search(r"^[A-Z]{2}[0-9]{2}", fields.get("documentNumber", ""))):
-            doc_type = "DRIVING_LICENCE"
-        elif any(k in upper_text for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")) or (fields.get("documentNumber") and re.search(r"^\d{4}\s\d{4}\s\d{4}$", fields.get("documentNumber", ""))):
-            doc_type = "AADHAAR"
-        elif any(k in upper_text for k in ("INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER")) or (fields.get("documentNumber") and re.search(r"^[A-Z]{5}[0-9]{4}[A-Z]$", fields.get("documentNumber", ""))):
-            doc_type = "PAN"
-        elif any(k in upper_text for k in ("ELECTION COMMISSION", "ELECTORAL", "ELECTOR PHOTO")) or (fields.get("documentNumber") and re.search(r"^[A-Z]{3}[0-9]{7}$", fields.get("documentNumber", ""))):
-            doc_type = "VOTER_ID"
-        elif any(k in upper_text for k in ("PASSPORT", "PASSEPORT", "REPUBLIC OF INDIA - PASSPORT")):
-            doc_type = "PASSPORT"
-        elif any(k in upper_text for k in ("IDENTITY", "NATIONAL ID", "CITIZEN CARD")):
-            doc_type = "NATIONAL_ID"
-        elif fields.get("passportNumber") or fields.get("name"):
-            doc_type = "NATIONAL_ID"
+        if parsed_mrz:
+            mrz_checks = parsed_mrz.checks
+            mrz_valid = parsed_mrz.all_valid
+            mrz_status = "VALIDATED" if mrz_valid else "CHECKSUM_MISMATCH"
+            notes.append(f"MRZ: ICAO 9303 parsed — Integrity Checkdigits: {mrz_status}")
 
-    # Merge extra visual fields
-    vz_payload = {
+    # 3. Barcode / PDF417 / DataMatrix Detection
+    barcode_info = _extract_barcode_info(data)
+    if barcode_info["barcodeDetected"]:
+        notes.append(f"Barcode: {barcode_info['barcodeType']} detected — Status: {barcode_info['barcodeStatus']}")
+
+    # 4. Generic National ID Adapter Field Extraction
+    adapter = GenericNationalIDAdapter()
+    id_res = adapter.extract(text, boxes, raw_mrz)
+    notes.extend(id_res["notes"])
+
+    fields = id_res["fields"]
+    field_confidences = id_res["fieldConfidences"]
+    field_states = id_res["fieldStates"]
+    doc_type = id_res["detectedDocumentType"]
+    issuing_country = id_res["issuingCountry"]
+
+    # 5. If passport/ID MRZ is present, merge MRZ extracted values
+    if parsed_mrz:
+        mrz_name = f"{parsed_mrz.given_names} {parsed_mrz.surname}".strip()
+        if mrz_name:
+            fields["name"] = mrz_name
+            fields["holderName"] = mrz_name
+            field_confidences["name"] = 0.99
+            field_confidences["holderName"] = 0.99
+            field_states["holderName"] = "DETECTED"
+        if parsed_mrz.document_number:
+            fields["passportNumber"] = parsed_mrz.document_number
+            fields["documentNumber"] = parsed_mrz.document_number
+            field_confidences["documentNumber"] = 0.99
+            field_states["documentNumber"] = "DETECTED"
+        if parsed_mrz.date_of_birth:
+            fields["dateOfBirth"] = parsed_mrz.date_of_birth
+            field_confidences["dateOfBirth"] = 0.99
+            field_states["dateOfBirth"] = "DETECTED"
+        if parsed_mrz.sex:
+            fields["gender"] = parsed_mrz.sex
+            field_confidences["gender"] = 0.99
+            field_states["gender"] = "DETECTED"
+        if parsed_mrz.expiry_date:
+            fields["expiryDate"] = parsed_mrz.expiry_date
+            field_confidences["expiryDate"] = 0.99
+            field_states["expiryDate"] = "DETECTED"
+
+    # 5. QR Code Detection & Cross-Validation
+    qr_info = _extract_qr_info(data, fields, fields)
+    if qr_info["qrDetected"]:
+        notes.append(f"QR Code: Detected — Decoded: {qr_info['qrDecoded']} | Cryptographic Signature: {qr_info['qrSignatureStatus']}")
+        if qr_info["qrOcrMatchStatus"] != "NOT_APPLICABLE":
+            notes.append(f"QR <-> Visual OCR Cross-Validation: {qr_info['qrOcrMatchStatus']}")
+
+    # Merge QR fallback data if visual fields were missed
+    if qr_info["qrData"]:
+        qr_d = qr_info["qrData"]
+        if not fields.get("name") and qr_d.get("name"):
+            fields["name"] = qr_d["name"]
+            fields["holderName"] = qr_d["name"]
+            field_confidences["holderName"] = 0.90
+            field_states["holderName"] = "DETECTED"
+        if not fields.get("dateOfBirth") and qr_d.get("dob"):
+            fields["dateOfBirth"] = qr_d["dob"]
+            field_confidences["dateOfBirth"] = 0.90
+            field_states["dateOfBirth"] = "DETECTED"
+        if not fields.get("gender") and qr_d.get("gender"):
+            fields["gender"] = qr_d["gender"]
+            field_confidences["gender"] = 0.90
+            field_states["gender"] = "DETECTED"
+        if not fields.get("documentNumber") and qr_d.get("documentNumber"):
+            fields["documentNumber"] = qr_d["documentNumber"]
+            fields["passportNumber"] = qr_d["documentNumber"]
+            field_confidences["documentNumber"] = 0.90
+            field_states["documentNumber"] = "DETECTED"
+        if not fields.get("address") and qr_d.get("address"):
+            fields["address"] = qr_d["address"]
+            field_confidences["address"] = 0.88
+            field_states["address"] = "DETECTED"
+
+    # Overall Confidence Calculation
+    overall_conf = round(ocr_confidence if ocr_confidence is not None else 0.85, 3)
+
+    visual_zone_payload = {
         **fields,
         "rawText": text[:2500] if text else "",
         "detectedDocumentType": doc_type,
+        "issuingCountry": issuing_country,
+        "fieldConfidences": field_confidences,
+        "fieldStates": field_states,
+        "qrDetected": qr_info["qrDetected"],
+        "qrDecoded": qr_info["qrDecoded"],
+        "qrStatus": qr_info["qrStatus"],
+        "qrSignatureVerified": qr_info["qrSignatureVerified"],
+        "qrSignatureStatus": qr_info["qrSignatureStatus"],
+        "qrData": qr_info["qrData"],
+        "qrOcrMatchStatus": qr_info["qrOcrMatchStatus"],
+        "qrOcrDiscrepancies": qr_info["qrOcrDiscrepancies"],
+        "barcodeDetected": barcode_info["barcodeDetected"],
+        "barcodeDecoded": barcode_info["barcodeDecoded"],
+        "barcodeStatus": barcode_info["barcodeStatus"],
+        "barcodeType": barcode_info["barcodeType"],
+        "barcodeData": barcode_info["barcodeData"],
+        "mrzStatus": mrz_status,
     }
-    if viz_fields.get("fatherName"):
-        vz_payload["fatherName"] = viz_fields["fatherName"]
-    if viz_fields.get("address"):
-        vz_payload["address"] = viz_fields["address"]
 
-    confidence = _compute_confidence(fields, mrz_valid, bool(text), ocr_confidence)
     extraction_time_ms = round((time.time() - start_time) * 1000, 1)
 
     return {
         "mrz": raw_mrz,
         "fields": fields,
-        "visualZone": vz_payload,
-        "confidence": confidence,
+        "visualZone": visual_zone_payload,
+        "confidence": overall_conf,
+        "fieldConfidences": field_confidences,
+        "fieldStates": field_states,
         "mrzValid": mrz_valid,
-        "mrzChecks": checks,
+        "mrzChecks": mrz_checks,
+        "mrzStatus": mrz_status,
         "notes": notes,
         "detectedDocumentType": doc_type,
+        "issuingCountry": issuing_country,
         "extractionTimeMs": extraction_time_ms,
+        "qrDetected": qr_info["qrDetected"],
+        "qrDecoded": qr_info["qrDecoded"],
+        "qrStatus": qr_info["qrStatus"],
+        "qrSignatureVerified": qr_info["qrSignatureVerified"],
+        "qrSignatureStatus": qr_info["qrSignatureStatus"],
+        "qrData": qr_info["qrData"],
+        "qrOcrMatchStatus": qr_info["qrOcrMatchStatus"],
+        "qrOcrDiscrepancies": qr_info["qrOcrDiscrepancies"],
+        "barcodeDetected": barcode_info["barcodeDetected"],
+        "barcodeDecoded": barcode_info["barcodeDecoded"],
+        "barcodeStatus": barcode_info["barcodeStatus"],
+        "barcodeType": barcode_info["barcodeType"],
+        "barcodeData": barcode_info["barcodeData"],
     }

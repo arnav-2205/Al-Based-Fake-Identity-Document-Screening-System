@@ -83,6 +83,16 @@ export default function Dashboard() {
       const dataList = resList.data || [];
       setList(dataList);
 
+      const realLogs: ActivityLog[] = dataList.slice(0, 7).map((v) => ({
+        id: String(v.verificationId),
+        time: v.createdAt ? new Date(v.createdAt).toLocaleTimeString() : '—',
+        checkpoint: 'ICP-BORDER-01',
+        docNum: v.extracted?.passportNumber || (v.extracted?.visualZone?.documentNumber as string) || `DOC-${v.documentId}`,
+        verdict: v.finalResult || 'CLEAR',
+        riskLevel: v.riskLevel || 'LOW',
+      }));
+      setLogs(realLogs);
+
       if (resStats.data) {
         setStats(resStats.data);
       } else {
@@ -111,57 +121,15 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-refresh statistics from database without creating mock inspection records
   useEffect(() => {
     if (!liveStreamActive) return;
 
-    const checkpoints = ['ICP-ATTARI', 'ICP-PETRAPOLE', 'ICP-RAXAUL', 'IGIA-DELHI'];
-    const names = ['Aarav Patel', 'Priya Singh', 'Vikramaditya Roy', 'Fatima Zahra', 'Karan Gupta', 'Tenzin Gyatso'];
+    const refreshInterval = setInterval(() => {
+      fetchLiveData();
+    }, 3500);
 
-    const trafficInterval = setInterval(async () => {
-      const isHigh = Math.random() < 0.25;
-      const isMedium = Math.random() < 0.35;
-      const name = names[Math.floor(Math.random() * names.length)];
-      const docNum = (isHigh ? 'P' : 'Z') + Math.floor(1000000 + Math.random() * 9000000);
-      const cp = checkpoints[Math.floor(Math.random() * checkpoints.length)];
-      const verdict = isHigh ? 'REJECT' : isMedium ? 'MANUAL_REVIEW' : 'CLEAR';
-      const riskLevel = isHigh ? 'HIGH' : isMedium ? 'MEDIUM' : 'LOW';
-
-      const timeStr = new Date().toLocaleTimeString();
-      const newLog: ActivityLog = {
-        id: String(Date.now()),
-        time: timeStr,
-        checkpoint: cp,
-        docNum,
-        verdict,
-        riskLevel,
-      };
-      setLogs((prev) => [newLog, ...prev.slice(0, 6)]);
-
-      try {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="250">
-          <rect width="400" height="250" fill="#0f172a"/>
-          <text x="20" y="40" fill="#ffffff" font-size="16">${name}</text>
-          <text x="20" y="70" fill="#38bdf8" font-size="14">PASSPORT ${docNum}</text>
-        </svg>`;
-        const blob = new Blob([svg], { type: 'image/svg+xml' });
-        const file = new File([blob], `passport_${docNum}.svg`, { type: 'image/svg+xml' });
-
-        const up = new FormData();
-        up.append('documentType', 'PASSPORT');
-        up.append('file', file);
-        const { data: uploaded } = await api.post('/documents/upload', up);
-
-        const start = new FormData();
-        start.append('documentId', String(uploaded.documentId));
-        await api.post('/verification/start', start);
-
-        fetchLiveData();
-      } catch (err) {
-        // Ignore background errors
-      }
-    }, 4500);
-
-    return () => clearInterval(trafficInterval);
+    return () => clearInterval(refreshInterval);
   }, [liveStreamActive]);
 
   const pieData = [

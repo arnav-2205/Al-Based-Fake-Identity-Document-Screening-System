@@ -8,11 +8,27 @@ class OcrResult(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     visualZone: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.0
+    fieldConfidences: dict[str, float] = Field(default_factory=dict)
+    fieldStates: dict[str, str] = Field(default_factory=dict)
     mrzValid: bool = False
     mrzChecks: dict[str, bool] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
     detectedDocumentType: str = "UNKNOWN"
+    issuingCountry: str = "UNKNOWN"
     extractionTimeMs: float = 0.0
+    qrDetected: bool = False
+    qrDecoded: bool = False
+    qrSignatureVerified: bool = False
+    qrSignatureStatus: str = "NOT_AVAILABLE"
+    qrOcrMatchStatus: str = "NOT_APPLICABLE"
+    qrOcrDiscrepancies: list[str] = Field(default_factory=list)
+    barcodeDetected: bool = False
+    barcodeDecoded: bool = False
+    barcodeStatus: str = "NOT_AVAILABLE"
+    barcodeType: str = "NONE"
+    barcodeData: Any | None = None
+    mrzStatus: str = "NOT_AVAILABLE"
+
 
 
 class TamperResult(BaseModel):

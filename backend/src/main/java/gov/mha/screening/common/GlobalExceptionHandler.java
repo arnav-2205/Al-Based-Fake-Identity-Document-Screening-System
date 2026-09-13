@@ -2,7 +2,10 @@ package gov.mha.screening.common;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -26,9 +29,28 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, msg);
     }
 
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
+        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ex.getMessage());
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingParam(MissingServletRequestParameterException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleNotReadable(HttpMessageNotReadableException ex) {
+        return build(HttpStatus.BAD_REQUEST, "Malformed JSON request body");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+        String msg = ex.getMessage();
+        if (msg == null || msg.isBlank()) {
+            msg = ex.getClass().getSimpleName();
+        }
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, msg);
     }
 
     private ResponseEntity<Map<String, Object>> build(HttpStatus status, String message) {

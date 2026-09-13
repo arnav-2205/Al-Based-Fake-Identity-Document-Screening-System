@@ -58,9 +58,12 @@ export interface RealtimeOcrResult {
     expiryDate?: string;
     [key: string]: string | undefined;
   };
+  fieldConfidences?: Record<string, number>;
+  fieldStates?: Record<string, string>;
   visualZone?: {
     rawText?: string;
     detectedDocumentType?: string;
+    issuingCountry?: string;
     fatherName?: string;
     address?: string;
     [key: string]: any;
@@ -70,7 +73,21 @@ export interface RealtimeOcrResult {
   mrzChecks?: Record<string, boolean>;
   notes: string[];
   detectedDocumentType?: string;
+  issuingCountry?: string;
   extractionTimeMs?: number;
+  qrDetected?: boolean;
+  qrDecoded?: boolean;
+  qrStatus?: string;
+  qrSignatureVerified?: boolean;
+  qrSignatureStatus?: string;
+  qrOcrMatchStatus?: string;
+  qrOcrDiscrepancies?: string[];
+  barcodeDetected?: boolean;
+  barcodeDecoded?: boolean;
+  barcodeStatus?: string;
+  barcodeType?: string;
+  barcodeData?: any;
+  mrzStatus?: string;
 }
 
 export async function extractRealtimeOcr(file: File): Promise<RealtimeOcrResult> {

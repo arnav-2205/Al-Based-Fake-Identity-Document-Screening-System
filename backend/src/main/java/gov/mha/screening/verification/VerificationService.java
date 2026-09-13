@@ -71,6 +71,12 @@ public class VerificationService {
         if (doc.getDocumentNumber() == null && extracted.getPassportNumber() != null) {
             doc.setDocumentNumber(extracted.getPassportNumber());
         }
+        if (ai.ocr() != null && ai.ocr().visualZone() != null && ai.ocr().visualZone().get("detectedDocumentType") != null) {
+            String detectedType = String.valueOf(ai.ocr().visualZone().get("detectedDocumentType"));
+            if (!"UNKNOWN".equalsIgnoreCase(detectedType) && ("PASSPORT".equalsIgnoreCase(doc.getDocumentType()) || "NATIONAL_ID".equalsIgnoreCase(doc.getDocumentType()))) {
+                doc.setDocumentType(detectedType);
+            }
+        }
 
         // ---- 6. deterministic validation -----------------------------
         ValidationEngine.Outcome validation = validationEngine.validate(extracted, ai.ocr());
@@ -102,6 +108,15 @@ public class VerificationService {
 
         // ---- assemble reasons ------------------------------------
         List<String> reasons = new ArrayList<>();
+        if (multi.flagged()) {
+            reasons.add("CRITICAL SECURITY ALARM: Hard Rejection Override — Multiple-Identity Fraud (Face matches stored embedding for a different document number)");
+        }
+        if (blacklist.matched()) {
+            reasons.add("CRITICAL SECURITY ALARM: Hard Rejection Override — Watchlist Blacklist Hit (" + blacklist.reason() + ")");
+        }
+        if (validation.mrzChecksumFailed()) {
+            reasons.add("CRITICAL SECURITY ALARM: Hard Rejection Override — MRZ Checksum Checkdigit Validation Failed");
+        }
         reasons.addAll(nullSafe(ai.ocr() == null ? null : ai.ocr().notes()));
         reasons.addAll(nullSafe(ai.tamper() == null ? null : ai.tamper().notes()));
         reasons.addAll(nullSafe(ai.face() == null ? null : ai.face().notes()));
@@ -280,7 +295,11 @@ public class VerificationService {
     }
 
     private String faceStatus(AiDtos.FaceResult f, double score) {
-        if (f == null || f.faceMatchScore() == null) return "UNKNOWN";
+        if (f == null || f.faceMatchStatus() == null) return "NOT_PERFORMED";
+        String status = f.faceMatchStatus().toUpperCase();
+        if (status.equals("SKIPPED") || status.equals("NOT_PERFORMED") || status.equals("UNKNOWN")) {
+            return "NOT_PERFORMED";
+        }
         return score >= props.risk().thresholds().faceMatch() ? "MATCH" : "MISMATCH";
     }
 

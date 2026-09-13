@@ -22,11 +22,13 @@ import {
   Award,
   Lock,
   ArrowLeft,
-  Eye,
   Printer,
-  FileSpreadsheet,
   BadgeCheck,
   XCircle,
+  HelpCircle,
+  QrCode,
+  Barcode,
+  Globe,
 } from 'lucide-react';
 
 export default function VerificationDetail() {
@@ -85,23 +87,71 @@ export default function VerificationDetail() {
     window.print();
   }
 
-  const renderField = (label: string, val?: string | number, highlight = false) => {
-    const displayVal = val !== undefined && val !== null && String(val).trim() !== '' ? String(val) : '—';
-    return (
-      <div className="flex justify-between items-center py-2.5 border-b border-slate-800/60 text-xs">
-        <span className="text-slate-400 font-medium">{label}</span>
-        <span className={`font-semibold ${highlight ? 'text-blue-400 font-mono text-sm' : 'text-slate-100'}`}>
-          {displayVal}
-        </span>
-      </div>
-    );
-  };
+  const vz = v.extracted?.visualZone || {};
+  const detectedDocType = (vz.detectedDocumentType as string) || v.documentType || 'NATIONAL_ID';
+  const issuingCountry = (vz.issuingCountry as string) || 'INDIA';
+  const isPassport = v.documentType === 'PASSPORT' || detectedDocType === 'PASSPORT';
+
+  const fieldConfidences: Record<string, number> = (vz.fieldConfidences as any) || {};
+  const fieldStates: Record<string, string> = (vz.fieldStates as any) || {};
+
+  const standardFields = [
+    { key: 'documentNumber', label: 'Document / Serial #', val: v.extracted?.passportNumber || vz.documentNumber },
+    { key: 'holderName', label: 'Holder Full Name', val: v.extracted?.name || vz.holderName },
+    { key: 'dateOfBirth', label: 'Date of Birth', val: v.extracted?.dateOfBirth },
+    { key: 'gender', label: 'Gender / Sex', val: v.extracted?.gender },
+    { key: 'nationality', label: 'Nationality Code', val: v.extracted?.nationality },
+    { key: 'issuingCountry', label: 'Issuing Country', val: issuingCountry },
+    { key: 'issueDate', label: 'Issue Date', val: v.extracted?.issueDate },
+    { key: 'expiryDate', label: 'Expiry Date', val: v.extracted?.expiryDate },
+    { key: 'address', label: 'Registered Address', val: vz.address ? String(vz.address) : undefined },
+  ];
 
   const mrzLines = v.extracted?.mrz ? v.extracted.mrz.split('\n').filter(Boolean) : [];
-
   const formattedDate = v.createdAt
     ? v.createdAt.slice(0, 19).replace('T', ' ')
     : new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+  const renderStateBadge = (state?: string) => {
+    switch (state) {
+      case 'DETECTED':
+        return (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            ✓ DETECTED
+          </span>
+        );
+      case 'LOW_CONFIDENCE':
+        return (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            ? LOW CONFIDENCE
+          </span>
+        );
+      case 'NOT_APPLICABLE':
+        return (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+            — NOT APPLICABLE
+          </span>
+        );
+      case 'NOT_DETECTED':
+      default:
+        return (
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            ✗ NOT DETECTED
+          </span>
+        );
+    }
+  };
+
+  const renderConfidenceBadge = (conf?: number) => {
+    if (conf == null || conf <= 0) return null;
+    const pct = Math.round(conf * 100);
+    const color = pct >= 85 ? 'text-emerald-400 bg-emerald-500/10' : pct >= 65 ? 'text-amber-400 bg-amber-500/10' : 'text-orange-400 bg-orange-500/10';
+    return (
+      <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${color} border border-slate-800`}>
+        {pct}%
+      </span>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -116,12 +166,23 @@ export default function VerificationDetail() {
           </Link>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Forensic Inspection #{v.verificationId}</h1>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                {isPassport ? 'PASSPORT VERIFICATION' : 'NATIONAL ID VERIFICATION'}
+              </h1>
               <RiskBadge level={v.riskLevel} score={v.riskScore} />
             </div>
-            <p className="text-xs text-slate-400 mt-1 font-mono">
-              Document ID: #{v.documentId} · Type: {v.documentType} · Created: {formattedDate}
-            </p>
+            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1 font-mono">
+              <span>Doc ID: #{v.documentId}</span>
+              <span>·</span>
+              <span className="text-blue-400 font-bold">Detected: {detectedDocType}</span>
+              <span>·</span>
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                <Globe className="w-3 h-3" />
+                <span>Country: {issuingCountry}</span>
+              </span>
+              <span>·</span>
+              <span>{formattedDate}</span>
+            </div>
           </div>
         </div>
 
@@ -131,141 +192,198 @@ export default function VerificationDetail() {
             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-2xl border border-slate-700/80 transition-all"
           >
             <Printer className="w-4 h-4 text-blue-400" />
-            <span>Export PDF Report</span>
+            <span>Export Report</span>
           </button>
 
-          <span
-            className={`px-4 py-2 rounded-2xl font-extrabold text-xs tracking-wider border ${
-              v.finalResult === 'CLEAR'
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-lg shadow-emerald-950/20'
-                : v.finalResult === 'MANUAL_REVIEW'
-                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-lg shadow-amber-950/20'
-                : 'bg-red-500/10 text-red-400 border-red-500/20 shadow-lg shadow-red-950/20'
-            }`}
-          >
-            VERDICT: {v.finalResult}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span
+              className={`px-4 py-2 rounded-2xl font-extrabold text-xs tracking-wider border ${
+                v.finalResult === 'CLEAR'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-lg shadow-emerald-950/20'
+                  : v.finalResult === 'MANUAL_REVIEW'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-lg shadow-amber-950/20'
+                  : 'bg-red-500/10 text-red-400 border-red-500/20 shadow-lg shadow-red-950/20'
+              }`}
+            >
+              VERDICT: {v.finalResult}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Grid: Extracted Data & Tamper Analysis */}
+      {/* Grid: Identity Fields & Machine-Readable Evidence */}
       <div className="grid lg:grid-cols-2 gap-8">
-        {/* Section 1: Extracted OCR Data */}
+        {/* Section 1: Dynamic Generic National ID Identity Information */}
         <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">
-          <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
-            <FileText className="w-4.5 h-4.5 text-blue-400" />
-            <span>Extracted ICAO 9303 MRZ &amp; OCR Zone</span>
-          </h2>
-
-          <div className="divide-y divide-slate-800/60">
-            {renderField('Subject Full Name', v.extracted?.name)}
-            {renderField('Passport / Serial #', v.extracted?.passportNumber, true)}
-            {renderField('Nationality Code', v.extracted?.nationality)}
-            {renderField('Date of Birth', v.extracted?.dateOfBirth)}
-            {renderField('Gender', v.extracted?.gender)}
-            {renderField('Issue Date', v.extracted?.issueDate)}
-            {renderField('Expiry Date', v.extracted?.expiryDate)}
-            {renderField('OCR Confidence Score', v.extracted?.ocrConfidence != null ? `${Math.round(v.extracted.ocrConfidence * 100)}%` : undefined)}
-            {renderField('Validation Status', v.validationStatus)}
-          </div>
-
-          {/* Interactive Line-by-Line Checksum Breakdown */}
-          <div className="pt-3 space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-400 font-bold">
-              <span>MRZ Line-by-Line Checksum Audit</span>
-              {mrzLines.length === 0 ? (
-                <span className="text-slate-400 flex items-center gap-1 font-mono">
-                  <span>VIZ ONLY (NO MRZ)</span>
-                </span>
-              ) : v.validationStatus === 'CHECKSUM_FAILED' || v.validationStatus === 'FAIL' ? (
-                <span className="text-red-400 flex items-center gap-1 font-mono">
-                  <XCircle className="w-3.5 h-3.5" />
-                  <span>CHECKSUM FAILED</span>
-                </span>
-              ) : (
-                <span className="text-emerald-400 flex items-center gap-1 font-mono">
-                  <BadgeCheck className="w-3.5 h-3.5" />
-                  <span>CHECKSUM VALIDATED</span>
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800/80 font-mono text-xs">
-              {mrzLines.length > 0 ? (
-                mrzLines.map((line, idx) => (
-                  <div key={idx} className="space-y-1">
-                    <div className="text-[10px] text-slate-500 font-sans font-semibold">
-                      Line {idx + 1}: {idx === 0 ? 'Document Type / Country / Name' : 'Serial / DOB / Expiry / Composite Checkdigit'}
-                    </div>
-                    <div className="text-cyan-300 break-all p-2 rounded-xl bg-slate-900/80 border border-slate-800">
-                      {line}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-slate-500 text-center py-2 font-sans">No MRZ lines extracted from document</p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Section 2: ELA Digital Tampering Analysis */}
-        <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-6 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
-              <Scan className="w-4.5 h-4.5 text-indigo-400" />
-              <span>Error Level Analysis (ELA) Tamper Breakdown</span>
+              <FileText className="w-4.5 h-4.5 text-blue-400" />
+              <span>Identity Information (Document-Adaptive)</span>
             </h2>
-            {v.elaHeatmapBase64 && (
-              <button
-                onClick={() => setShowHeatmap(!showHeatmap)}
-                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1.5 bg-blue-500/10 px-3 py-1.5 rounded-xl border border-blue-500/20 font-bold"
-              >
-                <Eye className="w-4 h-4" />
-                <span>{showHeatmap ? 'Hide Heatmap' : 'View ELA Heatmap'}</span>
-              </button>
+            {v.extracted?.ocrConfidence != null && (
+              <span className="text-xs font-mono font-bold text-slate-400 bg-slate-800 px-3 py-1 rounded-xl border border-slate-700">
+                Mean OCR: {Math.round(v.extracted.ocrConfidence * 100)}%
+              </span>
             )}
           </div>
 
-          <div className="h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={tamperData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
-                <YAxis domain={[0, 1]} stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px' }} />
-                <Bar dataKey="score" fill="#6366f1" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="divide-y divide-slate-800/60">
+            {standardFields.map((f) => {
+              const displayVal = f.val !== undefined && f.val !== null && String(f.val).trim() !== '' ? String(f.val) : '—';
+              const conf = fieldConfidences[f.key];
+              const state = fieldStates[f.key] || (displayVal !== '—' ? 'DETECTED' : 'NOT_DETECTED');
+
+              return (
+                <div key={f.key} className="flex justify-between items-center py-2.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 font-medium">{f.label}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-semibold ${f.key === 'documentNumber' ? 'text-blue-400 font-mono text-sm' : 'text-slate-100'}`}>
+                      {displayVal}
+                    </span>
+                    {renderConfidenceBadge(conf)}
+                    {renderStateBadge(state)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Section 2: Machine Readable Evidence Panel (QR, Barcode, MRZ) */}
+        <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-6 backdrop-blur-md">
+          <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
+            <Scan className="w-4.5 h-4.5 text-indigo-400" />
+            <span>Machine-Readable Technologies &amp; Signals</span>
+          </h2>
+
+          <div className="grid sm:grid-cols-3 gap-4 text-xs">
+            {/* Card 1: QR Code */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center gap-2 text-blue-400 font-bold">
+                <QrCode className="w-4 h-4" />
+                <span>QR Code</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
+                <span className={`font-bold font-mono text-[11px] ${vz.qrDetected ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {vz.qrStatus || (vz.qrDetected ? 'DETECTED' : 'NOT_AVAILABLE')}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 block font-semibold">Cryptographic Signature</span>
+                <span className="text-[10px] text-slate-300 font-mono block">
+                  {vz.qrSignatureStatus || 'Unverified (No PKI Root)'}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 block font-semibold">QR ↔ Visual OCR</span>
+                <span className={`font-bold font-mono text-[10px] ${vz.qrOcrMatchStatus === 'MATCH' ? 'text-emerald-400' : vz.qrOcrMatchStatus === 'MISMATCH' ? 'text-red-400' : 'text-slate-400'}`}>
+                  {vz.qrOcrMatchStatus || 'NOT_APPLICABLE'}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 2: Barcode */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center gap-2 text-purple-400 font-bold">
+                <Barcode className="w-4 h-4" />
+                <span>Barcode / PDF417</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
+                <span className={`font-bold font-mono text-[11px] ${vz.barcodeDetected ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {vz.barcodeStatus || 'NOT_AVAILABLE'}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 block font-semibold">Format</span>
+                <span className="text-[10px] text-slate-300 font-mono block">
+                  {vz.barcodeType || 'NONE'}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 3: MRZ */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                <FileText className="w-4 h-4" />
+                <span>MRZ (ICAO 9303)</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 block font-semibold">Status</span>
+                <span className={`font-bold font-mono text-[11px] ${mrzLines.length > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {vz.mrzStatus || (mrzLines.length > 0 ? 'VALIDATED' : 'NOT_AVAILABLE')}
+                </span>
+              </div>
+            </div>
           </div>
 
-          {showHeatmap && v.elaHeatmapBase64 && (
-            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-              <span className="text-xs text-slate-400 font-bold">ELA Pixel Anomaly Heatmap</span>
+          {/* ELA Heatmap Breakdown Chart */}
+          <div className="pt-2 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400 font-bold">ELA Tampering Breakdown</span>
+              {v.elaHeatmapBase64 && (
+                <button
+                  onClick={() => setShowHeatmap(!showHeatmap)}
+                  className="text-xs text-blue-400 hover:text-blue-300 font-bold"
+                >
+                  {showHeatmap ? 'Hide Heatmap' : 'View ELA Heatmap'}
+                </button>
+              )}
+            </div>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={tamperData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
+                  <YAxis domain={[0, 1]} stroke="#64748b" fontSize={11} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px' }} />
+                  <Bar dataKey="score" fill="#6366f1" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {showHeatmap && v.elaHeatmapBase64 && (
               <img
                 alt="ELA Heatmap"
                 src={`data:image/png;base64,${v.elaHeatmapBase64}`}
                 className="w-full max-h-48 object-contain rounded-xl border border-slate-800"
               />
-            </div>
-          )}
+            )}
+          </div>
         </section>
+      </div>
 
-        {/* Section 3: Face & Watchlist Match */}
+      {/* Section 3: Biometric & Audit Provenance */}
+      <div className="grid lg:grid-cols-2 gap-8">
         <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">
           <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
             <UserCheck className="w-4.5 h-4.5 text-emerald-400" />
             <span>Biometric Face &amp; Watchlist Correlation</span>
           </h2>
-          <div className="divide-y divide-slate-800/60">
-            {renderField('Face Match Confidence', v.faceMatchScore != null ? `${Math.round(v.faceMatchScore * 100)}%` : undefined)}
-            {renderField('Face Match Verdict', v.faceMatchStatus)}
-            {renderField('Liveness Check', v.livenessStatus)}
-            {renderField('Watchlist Status', v.blacklistStatus)}
+          <div className="divide-y divide-slate-800/60 text-xs">
+            <div className="flex justify-between py-2.5">
+              <span className="text-slate-400">Face Match Confidence</span>
+              <span className="font-bold text-white font-mono">
+                {v.faceMatchStatus === 'NOT_PERFORMED' || v.faceMatchStatus === 'SKIPPED' ? 'N/A (No Selfie)' : v.faceMatchScore != null ? `${Math.round(v.faceMatchScore * 100)}%` : '—'}
+              </span>
+            </div>
+            <div className="flex justify-between py-2.5">
+              <span className="text-slate-400">Face Match Verdict</span>
+              <span className="font-bold text-white">{v.faceMatchStatus}</span>
+            </div>
+            <div className="flex justify-between py-2.5">
+              <span className="text-slate-400">Liveness Check</span>
+              <span className="font-bold text-white">{v.livenessStatus}</span>
+            </div>
+            <div className="flex justify-between py-2.5">
+              <span className="text-slate-400">Watchlist Status</span>
+              <span className="font-bold text-white">{v.blacklistStatus}</span>
+            </div>
           </div>
         </section>
 
-        {/* Section 4: Audit & Blockchain Provenance */}
         <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">
           <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
             <Lock className="w-4.5 h-4.5 text-purple-400" />
@@ -300,17 +418,16 @@ export default function VerificationDetail() {
                 <CheckCircle2 className="w-4 h-4" />
                 <span>INTEGRITY STATUS: {integrity.integrityStatus || 'INTACT'}</span>
               </div>
-              <p className="text-[11px] text-slate-400 font-mono">Current database hash matches Hyperledger block record.</p>
             </div>
           )}
         </section>
       </div>
 
-      {/* Section 5: AI Explainability Drivers */}
+      {/* Section 4: AI Explainability Drivers */}
       <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-3 backdrop-blur-md">
         <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
           <Award className="w-4.5 h-4.5 text-amber-400" />
-          <span>AI Explainability &amp; Risk Drivers</span>
+          <span>AI Explainability &amp; Verification Signals</span>
         </h2>
         <ul className="space-y-2 text-xs text-slate-300 leading-relaxed">
           {v.reasons?.map((r, i) => (
@@ -322,7 +439,7 @@ export default function VerificationDetail() {
         </ul>
       </section>
 
-      {/* Section 6: Officer Action Bar */}
+      {/* Section 5: Officer Action Bar */}
       <section className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-4">
         <h2 className="text-sm font-extrabold text-white uppercase tracking-wider">
           Official Officer Screening Decision

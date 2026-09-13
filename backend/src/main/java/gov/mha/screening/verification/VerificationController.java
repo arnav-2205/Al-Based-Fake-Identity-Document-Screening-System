@@ -22,13 +22,35 @@ public class VerificationController {
     private final AuditService auditService;
     private final CurrentUser currentUser;
 
-    @PostMapping(value = "/start", consumes = {"multipart/form-data", "application/json"})
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
+    @PostMapping("/start")
     @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR')")
-    public VerificationDtos.VerificationView start(@RequestParam("documentId") Long documentId,
-                                                  @RequestPart(value = "liveFace", required = false) MultipartFile liveFace,
+    public VerificationDtos.VerificationView start(@RequestParam(value = "documentId", required = false) Long documentId,
+                                                  @RequestParam(value = "liveFace", required = false) MultipartFile liveFace,
                                                   HttpServletRequest request) throws IOException {
+        Long docId = documentId;
+        if (docId == null) {
+            String param = request.getParameter("documentId");
+            if (param != null && !param.isBlank()) {
+                try {
+                    docId = Long.parseLong(param.trim());
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        if (docId == null && request.getContentType() != null && request.getContentType().toLowerCase().contains("application/json")) {
+            try {
+                var map = objectMapper.readValue(request.getInputStream(), Map.class);
+                if (map != null && map.get("documentId") != null) {
+                    docId = Long.parseLong(map.get("documentId").toString());
+                }
+            } catch (Exception ignored) {}
+        }
+        if (docId == null) {
+            throw gov.mha.screening.common.ApiException.badRequest("Missing required documentId parameter");
+        }
         byte[] live = (liveFace != null && !liveFace.isEmpty()) ? liveFace.getBytes() : null;
-        return service.start(documentId, live, request.getRemoteAddr());
+        return service.start(docId, live, request.getRemoteAddr());
     }
 
     @GetMapping

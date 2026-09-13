@@ -21,7 +21,10 @@ public class DocumentController {
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR')")
     public Map<String, Object> upload(@RequestParam(value = "documentType", required = false) String documentType,
-                                      @RequestPart("file") MultipartFile file) {
+                                      @RequestParam(value = "file", required = false) MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw gov.mha.screening.common.ApiException.badRequest("Document file is required");
+        }
         Document d = service.upload(documentType, file);
         return Map.of(
                 "documentId", d.getId(),
@@ -32,7 +35,11 @@ public class DocumentController {
 
     @PostMapping(value = "/extract-ocr", consumes = "multipart/form-data")
     @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR')")
-    public AiDtos.OcrResult extractOcr(@RequestPart("file") MultipartFile file) {
+    public AiDtos.OcrResult extractOcr(@RequestParam(value = "file", required = false) MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            return new AiDtos.OcrResult(null, Map.of(), Map.of(), 0.0, false, Map.of(),
+                    List.of("OCR extraction failure: Document file is required"));
+        }
         try {
             return aiClient.extractOcr(file.getBytes());
         } catch (Exception e) {

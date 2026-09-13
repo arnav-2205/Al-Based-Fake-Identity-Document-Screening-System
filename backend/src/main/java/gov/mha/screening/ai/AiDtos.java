@@ -16,9 +16,27 @@ public final class AiDtos {
             Map<String, String> fields,
             Map<String, Object> visualZone,
             Double confidence,
+            Map<String, Double> fieldConfidences,
+            Map<String, String> fieldStates,
             Boolean mrzValid,
             Map<String, Boolean> mrzChecks,
-            List<String> notes
+            List<String> notes,
+            String detectedDocumentType,
+            String issuingCountry,
+            Boolean qrDetected,
+            Boolean qrDecoded,
+            Boolean qrSignatureVerified,
+            String qrSignatureStatus,
+            String qrStatus,
+            Map<String, Object> qrData,
+            String qrOcrMatchStatus,
+            List<String> qrOcrDiscrepancies,
+            Boolean barcodeDetected,
+            Boolean barcodeDecoded,
+            String barcodeStatus,
+            String barcodeType,
+            Object barcodeData,
+            String mrzStatus
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

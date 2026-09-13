@@ -349,10 +349,12 @@ export default function Verify() {
       }
     } catch (err: any) {
       clearInterval(interval);
+      const data = err?.response?.data;
       let msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        (err?.response?.status ? `Server error ${err.response.status}: ${JSON.stringify(err.response.data)}` : '') ||
+        (typeof data === 'string' && data.trim()) ||
+        data?.message ||
+        data?.error ||
+        (err?.response?.status ? `Server error ${err.response.status}${data ? `: ${typeof data === 'object' ? JSON.stringify(data) : data}` : ''}` : '') ||
         err?.message ||
         'Verification execution failed — check backend logs.';
       if (err?.response?.status === 403 || err?.response?.status === 401) {
@@ -897,10 +899,17 @@ export default function Verify() {
 
                   {/* Nationality */}
                   <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-3.5 hover:border-blue-500/40 transition-all">
-                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-1 flex items-center gap-1">
-                      <Globe className="w-3 h-3 text-blue-400" />
-                      Nationality / Country
-                    </div>
+                    <span className="text-xs font-black uppercase text-blue-400 font-mono tracking-wider flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                      REAL-TIME OCR INTELLIGENCE STREAM
+                    </span>
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono">
+                      Detected: {realtimeOcr.detectedDocumentType || realtimeOcr.visualZone?.detectedDocumentType || 'NATIONAL ID'}
+                    </span>
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-emerald-400" />
+                      Country: {realtimeOcr.issuingCountry || realtimeOcr.visualZone?.issuingCountry || 'INDIA'}
+                    </span>
                     <div className="text-sm font-black text-white font-mono">
                       {realtimeOcr.fields.nationality || '—'}
                     </div>
@@ -982,8 +991,8 @@ export default function Verify() {
                   )}
                 </div>
 
-                {/* MRZ Lines Viewer (if present) */}
-                {realtimeOcr.mrz && (
+                {/* MRZ Lines Viewer (for Passports) OR National ID QR Audit (for National IDs) */}
+                {realtimeOcr.detectedDocumentType === 'PASSPORT' && realtimeOcr.mrz ? (
                   <div className="bg-slate-950/90 border border-slate-800/90 rounded-2xl p-4 space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <button
@@ -1021,6 +1030,39 @@ export default function Verify() {
                         </pre>
                       </div>
                     )}
+                  </div>
+                ) : (
+                  <div className="bg-slate-950/90 border border-slate-800/90 rounded-2xl p-4 space-y-3 font-sans">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-cyan-300 flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                        <span>National ID QR Code &amp; Visual Audit Stream</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        QR Detected: {realtimeOcr.qrDetected || realtimeOcr.visualZone?.qrDetected ? 'YES' : 'NO'}
+                      </span>
+                    </div>
+
+                    <div className="grid sm:grid-cols-3 gap-3 text-xs pt-1">
+                      <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                        <span className="text-[10px] text-slate-400 font-bold block">QR CODE STATUS</span>
+                        <span className="font-bold text-white">
+                          {realtimeOcr.qrDetected || realtimeOcr.visualZone?.qrDetected ? 'Detected & Extracted' : 'No QR Code'}
+                        </span>
+                      </div>
+                      <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                        <span className="text-[10px] text-slate-400 font-bold block">DIGITAL SIGNATURE</span>
+                        <span className="font-mono text-[11px] font-bold text-amber-300">
+                          {realtimeOcr.qrSignatureStatus || realtimeOcr.visualZone?.qrSignatureStatus || (realtimeOcr.qrSignatureVerified ? 'DIGITALLY VERIFIED' : 'UNVERIFIED (No PKI Root)')}
+                        </span>
+                      </div>
+                      <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                        <span className="text-[10px] text-slate-400 font-bold block">QR ↔ OCR CONSISTENCY</span>
+                        <span className="font-mono text-[11px] font-bold text-emerald-400">
+                          {realtimeOcr.qrOcrMatchStatus || realtimeOcr.visualZone?.qrOcrMatchStatus || 'NOT_APPLICABLE'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1090,11 +1132,18 @@ export default function Verify() {
               <h2 className="text-xl font-bold text-white">Screening Complete</h2>
               <p className="text-xs text-slate-400">Verification #{result.verificationId} • Risk: {result.riskLevel}</p>
             </div>
-            <span className={`ml-auto px-4 py-2 rounded-xl text-xs font-extrabold ${
-              result.finalResult === 'CLEAR' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-              result.finalResult === 'REJECT' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-              'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-            }`}>{result.finalResult}</span>
+            <div className="ml-auto flex flex-col items-end gap-1">
+              <span className={`px-4 py-2 rounded-xl text-xs font-extrabold ${
+                result.finalResult === 'CLEAR' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                result.finalResult === 'REJECT' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+              }`}>{result.finalResult}</span>
+              {result.finalResult === 'REJECT' && result.riskLevel === 'LOW' && (
+                <span className="text-[10px] font-bold text-red-400 bg-red-950/80 px-2.5 py-0.5 rounded-lg border border-red-500/30">
+                  Hard Security Rule Triggered
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="grid sm:grid-cols-3 gap-4">
@@ -1108,7 +1157,11 @@ export default function Verify() {
             </div>
             <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80">
               <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Face Match</p>
-              <p className="text-2xl font-bold text-white">{(result.faceMatchScore * 100)?.toFixed(1)}%</p>
+              <p className="text-2xl font-bold text-white">
+                {result.faceMatchStatus === 'NOT_PERFORMED' || result.faceMatchStatus === 'SKIPPED'
+                  ? 'N/A'
+                  : `${(result.faceMatchScore * 100)?.toFixed(1)}%`}
+              </p>
             </div>
           </div>
 

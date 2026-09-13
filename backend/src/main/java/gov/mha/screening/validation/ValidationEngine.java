@@ -32,25 +32,53 @@ public class ValidationEngine {
         boolean expired = false;
         boolean crossZoneMismatch = false;
 
-        // --- 1. MRZ check digits (ICAO 9303) --------------------------------
-        Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
-        if (mrz.isPresent()) {
-            Mrz.Parsed m = mrz.get();
-            if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ passport-number check digit FAILED"); }
-            if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ date-of-birth check digit FAILED"); }
-            if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ expiry-date check digit FAILED"); }
-            if (!m.finalCheckValid())     { mrzChecksumFailed = true; reasons.add("MRZ composite check digit FAILED"); }
-            if (m.allChecksValid())       reasons.add("MRZ check digits: all valid");
+        String docType = data.getVisualZone() != null && data.getVisualZone().get("detectedDocumentType") != null
+                ? String.valueOf(data.getVisualZone().get("detectedDocumentType"))
+                : "PASSPORT";
 
-            // --- 2. Cross-zone consistency (MRZ vs visual zone) -------------
-            crossZoneMismatch |= mismatch("passport number", m.documentNumber(), data.getPassportNumber(), reasons);
-            crossZoneMismatch |= mismatch("date of birth", str(m.dateOfBirth()), str(data.getDateOfBirth()), reasons);
-            crossZoneMismatch |= mismatch("expiry date", str(m.expiryDate()), str(data.getExpiryDate()), reasons);
-            crossZoneMismatch |= mismatch("surname", m.surname(), surnameOf(data.getName()), reasons);
-        } else if (data.getMrzData() != null && !data.getMrzData().isBlank()) {
-            reasons.add("MRZ present but could not be parsed as ICAO TD3");
+        boolean isPassport = "PASSPORT".equalsIgnoreCase(docType) || (data.getMrzData() != null && !data.getMrzData().isBlank());
+
+        if (isPassport) {
+            // --- 1. Passport ICAO 9303 MRZ Checkdigits ----------------------
+            Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
+            if (mrz.isPresent()) {
+                Mrz.Parsed m = mrz.get();
+                if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ passport-number check digit FAILED"); }
+                if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ date-of-birth check digit FAILED"); }
+                if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ expiry-date check digit FAILED"); }
+                if (!m.finalCheckValid())     { mrzChecksumFailed = true; reasons.add("MRZ composite check digit FAILED"); }
+                if (m.allChecksValid())       reasons.add("MRZ check digits: all valid");
+
+                // Cross-zone consistency (MRZ vs visual zone)
+                crossZoneMismatch |= mismatch("passport number", m.documentNumber(), data.getPassportNumber(), reasons);
+                crossZoneMismatch |= mismatch("date of birth", str(m.dateOfBirth()), str(data.getDateOfBirth()), reasons);
+                crossZoneMismatch |= mismatch("expiry date", str(m.expiryDate()), str(data.getExpiryDate()), reasons);
+                crossZoneMismatch |= mismatch("surname", m.surname(), surnameOf(data.getName()), reasons);
+            } else if (data.getMrzData() != null && !data.getMrzData().isBlank()) {
+                reasons.add("MRZ present but could not be parsed as ICAO TD3");
+            } else {
+                reasons.add("Passport MRZ missing or unreadable");
+                mrzChecksumFailed = true;
+            }
         } else {
-            reasons.add("No MRZ found on document");
+            // --- 2. National ID Verification Pipeline (QR + Visual OCR) ------
+            reasons.add("National ID document type detected: " + docType);
+            boolean qrDetected = ocr != null && Boolean.TRUE.equals(ocr.qrDetected());
+            boolean qrDecoded = ocr != null && Boolean.TRUE.equals(ocr.qrDecoded());
+            boolean qrSigVerified = ocr != null && Boolean.TRUE.equals(ocr.qrSignatureVerified());
+            String qrMatchStatus = ocr != null && ocr.qrOcrMatchStatus() != null ? ocr.qrOcrMatchStatus() : "NOT_APPLICABLE";
+
+            if (qrDetected) {
+                reasons.add("National ID QR Code detected — Decoded: " + qrDecoded + " | Cryptographic Signature: " + (qrSigVerified ? "VERIFIED" : "UNVERIFIED (No PKI Cert Chain Root)"));
+                if ("MISMATCH".equalsIgnoreCase(qrMatchStatus)) {
+                    crossZoneMismatch = true;
+                    reasons.add("CRITICAL SECURITY ALARM: National ID QR data vs Visual OCR field mismatch (" + (ocr.qrOcrDiscrepancies() != null ? ocr.qrOcrDiscrepancies() : "") + ")");
+                } else if ("MATCH".equalsIgnoreCase(qrMatchStatus)) {
+                    reasons.add("National ID QR ↔ Visual OCR field consistency: 100% MATCH");
+                }
+            } else {
+                reasons.add("No QR Code detected on National ID document (Visual OCR audit performed)");
+            }
         }
 
         // --- 3. Expiry -----------------------------------------------------

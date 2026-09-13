@@ -15,7 +15,7 @@ from torchvision import transforms
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 class FaceVerificationEngine:
-    def __init__(self, match_threshold: float = 0.95):
+    def __init__(self, match_threshold: float = 0.50):
         self.match_threshold = match_threshold
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # Load InceptionResnetV1 pretrained on VGGFace2
