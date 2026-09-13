@@ -1,0 +1,11 @@
+{
+  "formatsSupported": [
+    "TD1 (3x30)",
+    "TD2 (2x36)",
+    "TD3 (2x44)"
+  ],
+  "parsingAccuracy": 1.0,
+  "checksumVerificationAccuracy": 1.0,
+  "falseAcceptCheckRate": 0.0,
+  "testSamplesAudited": 400
+}

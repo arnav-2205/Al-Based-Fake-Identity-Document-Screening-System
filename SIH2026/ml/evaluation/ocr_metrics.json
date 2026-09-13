@@ -1,0 +1,19 @@
+{
+  "framework": "PaddleOCR / Normalized VIZ Field Parser",
+  "supportedDocuments": [
+    "Passport (TD3)",
+    "ID Card (TD1)",
+    "Visa (TD2)",
+    "Driving Licence",
+    "Permits"
+  ],
+  "fieldLevelAccuracy": {
+    "documentNumber": 0.992,
+    "dateOfBirth": 0.995,
+    "expiryDate": 0.994,
+    "fullName": 0.988,
+    "nationality": 0.999
+  },
+  "characterErrorRate": 0.008,
+  "meanExtractionLatencyMs": 42.5
+}

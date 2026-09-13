@@ -1,0 +1,22 @@
+{
+  "name": "verification-chaincode",
+  "version": "0.1.0",
+  "description": "SIH26188 tamper-evident verification audit records",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "fabric-chaincode-node start",
+    "test": "mocha --recursive"
+  },
+  "dependencies": {
+    "fabric-contract-api": "^2.5.4",
+    "fabric-shim": "^2.5.4"
+  },
+  "devDependencies": {
+    "chai": "^4.4.1",
+    "mocha": "^10.7.3",
+    "sinon": "^18.0.0"
+  }
+}

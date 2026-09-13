@@ -1,0 +1,9 @@
+# Heavy ML dependencies — only needed when AI_USE_REAL_MODELS=true.
+# CPU builds. Expect a multi-GB image.
+paddleocr==2.8.1
+paddlepaddle==2.6.1
+torch==2.4.1
+torchvision==0.19.1
+insightface==0.7.3
+onnxruntime==1.19.2
+dlib==19.24.6

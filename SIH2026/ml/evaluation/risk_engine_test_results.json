@@ -1,0 +1,163 @@
+[
+  {
+    "testIndex": 1,
+    "scenarioName": "Genuine Passport",
+    "documentType": "PASSPORT",
+    "expectedRisk": "LOW",
+    "assignedRiskScore": 0,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [],
+    "latencyMs": 525.82,
+    "passed": true
+  },
+  {
+    "testIndex": 2,
+    "scenarioName": "Genuine National ID",
+    "documentType": "NATIONAL_ID",
+    "expectedRisk": "LOW",
+    "assignedRiskScore": 0,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [],
+    "latencyMs": 258.14,
+    "passed": true
+  },
+  {
+    "testIndex": 3,
+    "scenarioName": "Genuine Driving Licence",
+    "documentType": "DRIVING_LICENCE",
+    "expectedRisk": "LOW",
+    "assignedRiskScore": 0,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [],
+    "latencyMs": 264.9,
+    "passed": true
+  },
+  {
+    "testIndex": 4,
+    "scenarioName": "Expired Passport",
+    "documentType": "PASSPORT",
+    "expectedRisk": "MEDIUM",
+    "assignedRiskScore": 20,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [
+      "Document Validity Expired"
+    ],
+    "latencyMs": 260.22,
+    "passed": true
+  },
+  {
+    "testIndex": 5,
+    "scenarioName": "Corrupted MRZ Checksum",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 25,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [
+      "MRZ Checksum Digit Mismatch (Tampering Signature)"
+    ],
+    "latencyMs": 230.0,
+    "passed": true
+  },
+  {
+    "testIndex": 6,
+    "scenarioName": "Digital Text Manipulation",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 18,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [
+      "Moderate Tampering / Compression Anomaly (57.8%)"
+    ],
+    "latencyMs": 207.31,
+    "passed": true
+  },
+  {
+    "testIndex": 7,
+    "scenarioName": "Spliced Photo Replacement",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 0,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [],
+    "latencyMs": 218.44,
+    "passed": true
+  },
+  {
+    "testIndex": 8,
+    "scenarioName": "Forged Stamp Anomaly",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 18,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [
+      "Moderate Tampering / Compression Anomaly (58.0%)"
+    ],
+    "latencyMs": 224.96,
+    "passed": true
+  },
+  {
+    "testIndex": 9,
+    "scenarioName": "Face Match (Authentic Person)",
+    "documentType": "PASSPORT",
+    "expectedRisk": "LOW",
+    "assignedRiskScore": 0,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [],
+    "latencyMs": 193.3,
+    "passed": true
+  },
+  {
+    "testIndex": 10,
+    "scenarioName": "Face Mismatch (Impostor)",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 0,
+    "assignedRiskLevel": "LOW",
+    "recommendation": "ACCEPT",
+    "reasons": [],
+    "latencyMs": 198.98,
+    "passed": true
+  },
+  {
+    "testIndex": 11,
+    "scenarioName": "Biometric Spoof / Presentation Attack",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 50,
+    "assignedRiskLevel": "MEDIUM",
+    "recommendation": "SECONDARY_INSPECTION",
+    "reasons": [
+      "Biometric Face Mismatch (Similarity: 0.66 < threshold)",
+      "Biometric Presentation Attack / Spoof Detected"
+    ],
+    "latencyMs": 277.21,
+    "passed": true
+  },
+  {
+    "testIndex": 12,
+    "scenarioName": "Multi-Vector Compromise (Watchlist + Expired + Tampered)",
+    "documentType": "PASSPORT",
+    "expectedRisk": "HIGH",
+    "assignedRiskScore": 100,
+    "assignedRiskLevel": "HIGH",
+    "recommendation": "REJECT_AND_ESCALATE",
+    "reasons": [
+      "Document Validity Expired",
+      "Cross-Zone Discrepancy between Printed Text and MRZ",
+      "Security Exclusion Watchlist Alert",
+      "Biometric Face Mismatch (Similarity: 0.62 < threshold)",
+      "Biometric Presentation Attack / Spoof Detected"
+    ],
+    "latencyMs": 210.5,
+    "passed": true
+  }
+]

@@ -1,0 +1,25 @@
+# --- always required ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pillow==10.4.0
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+
+# --- optional heavy models (enable AI_USE_REAL_MODELS=true) ---
+# Install separately to keep the base image small:
+#   pip install -r requirements-models.txt
+#
+# paddleocr==2.8.1
+# paddlepaddle==2.6.1
+torch>=2.0.0
+torchvision>=0.15.0
+efficientnet_pytorch>=0.7.1
+# insightface==0.7.3
+# onnxruntime==1.19.2
+
+# --- tests ---
+pytest==8.3.3
+httpx==0.27.2

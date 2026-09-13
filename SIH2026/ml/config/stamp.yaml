@@ -1,0 +1,15 @@
+# Stamp Verification Training Configuration (ResNet18)
+model_name: resnet18
+pretrained: true
+num_classes: 2  # Binary: 0=Genuine, 1=Forged
+image_size: 128
+batch_size: 16
+epochs: 12
+learning_rate: 0.0005
+weight_decay: 0.0005
+optimizer: Adam
+checkpoint_dir: ml/checkpoints/stamp
+save_best: true
+save_last: true
+seed: 42
+device: cpu

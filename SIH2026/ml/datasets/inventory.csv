@@ -1,0 +1,6 @@
+dataset_name,source,license,document_type,language,image_count,annotation_count,size_bytes,status,purpose
+Synthetic_Indian_International_Passports,Defensive In-House Synthetic Generator (ICAO 9303 Compliant),MIT / Defensive Research License,Passport / TD3,English / Hindi transliterated,800,800,14500000,VALIDATED,"Document OCR, Field Extraction & VIZ Verification"
+DocTamper_Synthetic_Pairs,Multi-Modal Tampering Engine (Photo/Text/Stamp/MRZ Splicing),Defensive Research License,Passport / Identity Card,English,800,800,15200000,VALIDATED,Binary & Multi-Class Tampering Classification
+StaVer_Immigration_Stamps,Synthetic Immigration Stamp Suite (StaVer Benchmark Alignment),CC-BY 4.0,Immigration & Entry Stamps,English,800,800,4200000,VALIDATED,Stamp Forgery & Boundary Artifact Detection
+Face_Live_Spoof_Pairs,Consented Test Identity & Synthetic Biometric Generator,Defensive Research / Safe Testing License,Biometric Portraits,N/A,800,800,6800000,VALIDATED,Face Verification & Anti-Spoofing / Liveness Classification
+MRZ_ICAO_Benchmark_Suite,ICAO 9303 TD1/TD2/TD3 Standardized Test Suite,Public Domain / ICAO Standard,"TD1, TD2, TD3 MRZ Strings",OCR-B Standard,400,400,1200000,VALIDATED,"MRZ Parser, OCR-B Recognition & Checksum Engine Validation"

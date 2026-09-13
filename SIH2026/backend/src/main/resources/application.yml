@@ -1,0 +1,69 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: screening-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:mem:screening;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER:org.h2.Driver}
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    open-in-view: false
+    properties:
+      hibernate.format_sql: true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 20MB
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:change-me-to-a-64-char-random-string-0123456789abcdef0123456789abcd}
+    expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:8081}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:documents}
+  ai:
+    base-url: ${AI_SERVICE_BASE_URL:http://127.0.0.1:8000}
+    timeout-ms: 30000
+  risk:
+    weights:
+      tampering: 25
+      face: 20
+      validation: 20
+      blacklist: 20
+      multi-identity: 10
+      liveness: 5
+    thresholds:
+      face-match: 0.50
+      tamper-flag: 0.55
+  blockchain:
+    enabled: ${FABRIC_ENABLED:false}
+    channel: ${FABRIC_CHANNEL:screeningchannel}
+    chaincode: ${FABRIC_CHAINCODE:verification}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

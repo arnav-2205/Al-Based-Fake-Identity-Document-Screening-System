@@ -1,0 +1,9 @@
+{
+  "model": "MobileNetV3 Anti-Spoofing Classifier",
+  "testSamples": 120,
+  "accuracy": 1.0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1Score": 1.0,
+  "rocAuc": 1.0
+}

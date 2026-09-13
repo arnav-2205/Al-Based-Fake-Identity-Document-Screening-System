@@ -1,0 +1,11 @@
+{
+  "model": "InceptionResnetV1 (Face Verification)",
+  "positivePairsTested": 60,
+  "negativePairsTested": 60,
+  "optimalThreshold": 0.65,
+  "trueAcceptRate": 1.0,
+  "falseAcceptRate": 1.0,
+  "falseRejectRate": 0.0,
+  "meanGenuineSimilarity": 1.0,
+  "meanImpostorSimilarity": 0.9338
+}

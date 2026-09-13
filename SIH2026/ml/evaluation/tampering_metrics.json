@@ -1,0 +1,212 @@
+{
+  "model": "EfficientNet-B0 Tamper Detector",
+  "dataset": "SIH26188_tampering_starter_dataset",
+  "testSamples": 160,
+  "trainSamples": 1280,
+  "valSamples": 160,
+  "bestEpoch": 15,
+  "totalEpochsTrained": 15,
+  "trainingTimeSeconds": 2720.3,
+  "accuracy": 1.0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1Score": 1.0,
+  "rocAuc": 1.0,
+  "falsePositiveRate": 0.0,
+  "falseNegativeRate": 0.0,
+  "confusionMatrix": {
+    "trueNegative": 40,
+    "falsePositive": 0,
+    "falseNegative": 0,
+    "truePositive": 120
+  },
+  "perClassResults": {
+    "genuine": {
+      "count": 40,
+      "accuracy": 1.0,
+      "correctlyClassified": 40
+    },
+    "tampered_text": {
+      "count": 40,
+      "accuracy": 1.0,
+      "correctlyClassified": 40
+    },
+    "tampered_photo": {
+      "count": 40,
+      "accuracy": 1.0,
+      "correctlyClassified": 40
+    },
+    "tampered_stamp": {
+      "count": 40,
+      "accuracy": 1.0,
+      "correctlyClassified": 40
+    }
+  },
+  "trainingHistory": [
+    {
+      "epoch": 1,
+      "trainLoss": 0.1675,
+      "trainAcc": 0.8812,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00079126
+    },
+    {
+      "epoch": 2,
+      "trainLoss": 0.0691,
+      "trainAcc": 0.9641,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00076542
+    },
+    {
+      "epoch": 3,
+      "trainLoss": 0.0737,
+      "trainAcc": 0.9727,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00072361
+    },
+    {
+      "epoch": 4,
+      "trainLoss": 0.0256,
+      "trainAcc": 0.9836,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00066765
+    },
+    {
+      "epoch": 5,
+      "trainLoss": 0.0372,
+      "trainAcc": 0.9867,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.0006
+    },
+    {
+      "epoch": 6,
+      "trainLoss": 0.0198,
+      "trainAcc": 0.9891,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00052361
+    },
+    {
+      "epoch": 7,
+      "trainLoss": 0.0204,
+      "trainAcc": 0.9867,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00044181
+    },
+    {
+      "epoch": 8,
+      "trainLoss": 0.0059,
+      "trainAcc": 0.9945,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00035819
+    },
+    {
+      "epoch": 9,
+      "trainLoss": 0.0099,
+      "trainAcc": 0.9945,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00027639
+    },
+    {
+      "epoch": 10,
+      "trainLoss": 0.0122,
+      "trainAcc": 0.9938,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.0002
+    },
+    {
+      "epoch": 11,
+      "trainLoss": 0.0088,
+      "trainAcc": 0.9922,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.00013235
+    },
+    {
+      "epoch": 12,
+      "trainLoss": 0.0067,
+      "trainAcc": 0.9961,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 7.639e-05
+    },
+    {
+      "epoch": 13,
+      "trainLoss": 0.0106,
+      "trainAcc": 0.9922,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 3.458e-05
+    },
+    {
+      "epoch": 14,
+      "trainLoss": 0.0127,
+      "trainAcc": 0.9922,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 8.74e-06
+    },
+    {
+      "epoch": 15,
+      "trainLoss": 0.0066,
+      "trainAcc": 0.9945,
+      "valAcc": 1.0,
+      "valPrecision": 1.0,
+      "valRecall": 1.0,
+      "valF1": 1.0,
+      "valAuc": 1.0,
+      "lr": 0.0
+    }
+  ]
+}

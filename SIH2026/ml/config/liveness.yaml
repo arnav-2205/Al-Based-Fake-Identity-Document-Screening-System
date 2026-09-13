@@ -1,0 +1,15 @@
+# Face Anti-Spoofing / Liveness Training Configuration (MobileNetV3)
+model_name: mobilenet_v3_small
+pretrained: true
+num_classes: 2  # Binary: 0=Live, 1=Spoof
+image_size: 160
+batch_size: 16
+epochs: 12
+learning_rate: 0.0006
+weight_decay: 0.0005
+optimizer: AdamW
+checkpoint_dir: ml/checkpoints/liveness
+save_best: true
+save_last: true
+seed: 42
+device: cpu

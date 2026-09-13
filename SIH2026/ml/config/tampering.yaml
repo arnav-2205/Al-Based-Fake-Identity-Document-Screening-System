@@ -1,0 +1,17 @@
+# Tampering Detection Training Configuration (EfficientNet-B0)
+model_name: efficientnet_b0
+pretrained: true
+num_classes: 2  # Binary: 0=Genuine, 1=Tampered
+image_size: 224
+batch_size: 16
+epochs: 15
+learning_rate: 0.0008
+weight_decay: 0.001
+optimizer: AdamW
+scheduler: CosineAnnealingLR
+early_stopping_patience: 4
+seed: 42
+checkpoint_dir: ml/checkpoints/tampering
+save_best: true
+save_last: true
+device: cpu
