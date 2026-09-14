@@ -37,14 +37,24 @@ public class DocumentController {
     @PreAuthorize("hasAnyRole('OFFICER','ADMIN','INVESTIGATOR')")
     public AiDtos.OcrResult extractOcr(@RequestParam(value = "file", required = false) MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            return new AiDtos.OcrResult(null, Map.of(), Map.of(), 0.0, false, Map.of(),
-                    List.of("OCR extraction failure: Document file is required"));
+            return new AiDtos.OcrResult(
+                    null, Map.of(), Map.of(), 0.0, Map.of(), Map.of(),
+                    false, Map.of(), List.of("OCR extraction failure: Document file is required"),
+                    "UNKNOWN", "NATIONAL_ID", "NATIONAL_ID_CARD", List.of(), List.of(),
+                    "UNKNOWN", false, false, false, "NOT_AVAILABLE", "NOT_AVAILABLE",
+                    null, "NOT_APPLICABLE", List.of(), false, false, "NOT_AVAILABLE",
+                    "NONE", null, "NOT_AVAILABLE");
         }
         try {
             return aiClient.extractOcr(file.getBytes());
         } catch (Exception e) {
-            return new AiDtos.OcrResult(null, Map.of(), Map.of(), 0.0, false, Map.of(),
-                    List.of("OCR extraction failure: " + e.getMessage()));
+            return new AiDtos.OcrResult(
+                    null, Map.of(), Map.of(), 0.0, Map.of(), Map.of(),
+                    false, Map.of(), List.of("OCR extraction failure: " + e.getMessage()),
+                    "UNKNOWN", "NATIONAL_ID", "NATIONAL_ID_CARD", List.of(), List.of(),
+                    "UNKNOWN", false, false, false, "NOT_AVAILABLE", "NOT_AVAILABLE",
+                    null, "NOT_APPLICABLE", List.of(), false, false, "NOT_AVAILABLE",
+                    "NONE", null, "NOT_AVAILABLE");
         }
     }
 }

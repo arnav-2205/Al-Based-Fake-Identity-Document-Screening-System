@@ -77,8 +77,13 @@ public class AiClient {
     // --- graceful degradation when the AI service is unreachable -----------
     private Mono<AiDtos.OcrResult> fallbackOcr(Throwable e) {
         log.warn("OCR call failed, using fallback: {}", e.getMessage());
-        return Mono.just(new AiDtos.OcrResult(null, Map.of(), Map.of(), 0.0, false, Map.of(),
-                List.of("AI service unavailable — OCR skipped")));
+        return Mono.just(new AiDtos.OcrResult(
+                null, Map.of(), Map.of(), 0.0, Map.of(), Map.of(),
+                false, Map.of(), List.of("AI service unavailable — OCR skipped"),
+                "UNKNOWN", "NATIONAL_ID", "NATIONAL_ID_CARD", List.of(), List.of(),
+                "UNKNOWN", false, false, false, "NOT_AVAILABLE", "NOT_AVAILABLE",
+                null, "NOT_APPLICABLE", List.of(), false, false, "NOT_AVAILABLE",
+                "NONE", null, "NOT_AVAILABLE"));
     }
 
     private Mono<AiDtos.TamperResult> fallbackTamper(Throwable e) {
