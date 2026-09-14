@@ -41,7 +41,7 @@ app:
     bucket: ${MINIO_BUCKET:documents}
   ai:
     base-url: ${AI_SERVICE_BASE_URL:http://127.0.0.1:8000}
-    timeout-ms: 30000
+    timeout-ms: 120000
   risk:
     weights:
       tampering: 25
