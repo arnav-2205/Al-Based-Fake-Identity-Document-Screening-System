@@ -36,7 +36,7 @@ public class ValidationEngine {
                 ? String.valueOf(data.getVisualZone().get("detectedDocumentType"))
                 : "PASSPORT";
 
-        boolean isPassport = "PASSPORT".equalsIgnoreCase(docType) || (data.getMrzData() != null && !data.getMrzData().isBlank());
+        boolean isPassport = "PASSPORT".equalsIgnoreCase(docType);
 
         if (isPassport) {
             // --- 1. Passport ICAO 9303 MRZ Checkdigits ----------------------
