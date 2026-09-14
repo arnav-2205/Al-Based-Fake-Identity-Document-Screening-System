@@ -243,9 +243,19 @@ def render_document_image(doc_data: dict, seed: int) -> Image.Image:
     draw.rectangle([0, height - 120, width, height], fill=(255, 255, 255))
     draw.line([(0, height - 120), (width, height - 120)], fill=(180, 190, 200), width=1)
     
+    mrz_font = None
+    for font_name in ("arial.ttf", "cour.ttf", "consola.ttf", "DejaVuSansMono.ttf"):
+        try:
+            mrz_font = ImageFont.truetype(font_name, 20)
+            break
+        except Exception:
+            pass
+    if mrz_font is None:
+        mrz_font = ImageFont.load_default()
+
     mrz_lines = doc_data["mrz"].split("\n")
-    draw.text((35, height - 100), mrz_lines[0], fill=(20, 20, 20))
-    draw.text((35, height - 60), mrz_lines[1], fill=(20, 20, 20))
+    draw.text((25, height - 105), mrz_lines[0], fill=(20, 20, 20), font=mrz_font)
+    draw.text((25, height - 65), mrz_lines[1], fill=(20, 20, 20), font=mrz_font)
     
     return bg
 

@@ -13,7 +13,8 @@ from ml.scripts.dataset_generator import (
     generate_synthetic_passport_data,
     render_document_image,
     apply_tampering,
-    create_synthetic_portrait
+    create_synthetic_portrait,
+    compute_mrz_check_digit
 )
 
 def main():
@@ -58,6 +59,25 @@ def main():
     doc4["documentNumber"] = "X9988776"
     doc4["surname"] = "SUSPECT"
     doc4["givenName"] = "ANON"
+    doc4["dateOfBirth"] = "1990-11-02"
+
+    # Re-calculate MRZ with valid check digits for updated fields
+    doc_num_mrz = doc4["documentNumber"].ljust(9, '<')[:9]
+    doc_num_chk = compute_mrz_check_digit(doc_num_mrz)
+    dob_mrz = "901102"
+    dob_chk = compute_mrz_check_digit(dob_mrz)
+    exp_parts = doc4["expiryDate"].split("-")
+    exp_mrz = f"{exp_parts[0][-2:]}{exp_parts[1]}{exp_parts[2]}"
+    exp_chk = compute_mrz_check_digit(exp_mrz)
+    opt_field = "Z100000".ljust(14, '<')[:14]
+    opt_chk = compute_mrz_check_digit(opt_field)
+
+    line1 = f"P<{doc4['nationality']}{doc4['surname']}<<{doc4['givenName']}".ljust(44, '<')[:44]
+    comp_data = f"{doc_num_mrz}{doc_num_chk}{dob_mrz}{dob_chk}{exp_mrz}{exp_chk}{opt_field}{opt_chk}"
+    final_chk = compute_mrz_check_digit(comp_data)
+    line2 = f"{doc_num_mrz}{doc_num_chk}{doc4['nationality']}{dob_mrz}{dob_chk}{doc4['gender']}{exp_mrz}{exp_chk}{opt_field}{opt_chk}{final_chk}".ljust(44, '<')[:44]
+    doc4["mrz"] = f"{line1}\n{line2}"
+
     img4 = render_document_image(doc4, seed=404)
     path4 = output_dir / "04_watchlist_hit_passport.png"
     img4.save(path4)
