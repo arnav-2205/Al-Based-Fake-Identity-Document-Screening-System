@@ -147,7 +147,35 @@ public final class AiDtos {
             String elaHeatmapBase64,
             Map<String, Object> exif,
             List<String> notes
-    ) {}
+    ) {
+        @JsonCreator
+        public TamperResult {
+        }
+
+        public TamperResult(
+                Double tamperingScore,
+                Double photoTampering,
+                Double textTampering,
+                Double stampTampering,
+                String elaHeatmapBase64,
+                Map<String, Object> exif,
+                List<String> notes
+        ) {
+            this(
+                    tamperingScore,
+                    photoTampering,
+                    textTampering,
+                    stampTampering,
+                    null,
+                    null,
+                    null,
+                    null,
+                    elaHeatmapBase64,
+                    exif,
+                    notes
+            );
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FaceResult(

@@ -88,7 +88,10 @@ public class AiClient {
 
     private Mono<AiDtos.TamperResult> fallbackTamper(Throwable e) {
         log.warn("Tamper call failed, using fallback: {}", e.getMessage());
-        return Mono.just(new AiDtos.TamperResult(0.0, 0.0, 0.0, 0.0, null, Map.of(),
+        return Mono.just(new AiDtos.TamperResult(
+                0.0, 0.0, 0.0, 0.0,
+                null, null, null, null,
+                null, Map.of(),
                 List.of("AI service unavailable — tamper analysis skipped")));
     }
 
