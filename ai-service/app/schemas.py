@@ -18,6 +18,8 @@ class OcrResult(BaseModel):
     detectedDocumentType: str = "UNKNOWN"
     documentCategory: str = "NATIONAL_ID"
     documentSubtype: str = "NATIONAL_ID_CARD"
+    detectedType: str = "UNKNOWN"
+    detectionConfidence: float = 0.0
     applicableFields: list[str] = Field(default_factory=list)
     applicableChecks: list[str] = Field(default_factory=list)
     issuingCountry: str = "UNKNOWN"
@@ -37,6 +39,74 @@ class OcrResult(BaseModel):
     barcodeData: Any | None = None
     barcodeCrossCheckStatus: str = "NOT_APPLICABLE"
     mrzStatus: str = "NOT_AVAILABLE"
+    visaResult: "VisaResult" = Field(default_factory=lambda: VisaResult())
+    drivingLicenceResult: "DrivingLicenceResult" = Field(default_factory=lambda: DrivingLicenceResult())
+    nationalIdResult: "NationalIdResult" = Field(default_factory=lambda: NationalIdResult())
+    permitResult: "PermitResult" = Field(default_factory=lambda: PermitResult())
+
+
+
+class VisaResult(BaseModel):
+    visaNumber: str | None = None
+    visaType: str | None = None
+    entryType: str = "UNKNOWN"
+    stayDuration: str | None = None
+    stayDurationValue: int | None = None
+    stayDurationUnit: str | None = None
+    issueDate: str | None = None
+    expiryDate: str | None = None
+    issuingCountry: str | None = None
+    status: str = "NOT_APPLICABLE"
+    validationMessages: list[str] = Field(default_factory=list)
+
+
+class DrivingLicenceResult(BaseModel):
+    dlNumber: str | None = None
+    holderName: str | None = None
+    dateOfBirth: str | None = None
+    issueDate: str | None = None
+    expiryDate: str | None = None
+    state: str | None = None
+    issuingAuthority: str | None = None
+    vehicleClasses: list[str] = Field(default_factory=list)
+    barcodeStatus: str = "NOT_AVAILABLE"
+    status: str = "NOT_APPLICABLE"
+    validationMessages: list[str] = Field(default_factory=list)
+
+
+class NationalIdResult(BaseModel):
+    idNumber: str | None = None
+    holderName: str | None = None
+    dateOfBirth: str | None = None
+    idSubtype: str = "UNKNOWN"
+    issueDate: str | None = None
+    expiryDate: str | None = None
+    address: str | None = None
+    gender: str | None = None
+    nationality: str | None = None
+    qrStatus: str = "NOT_AVAILABLE"
+    barcodeStatus: str = "NOT_AVAILABLE"
+    status: str = "NOT_APPLICABLE"
+    validationMessages: list[str] = Field(default_factory=list)
+
+
+class PermitResult(BaseModel):
+    permitNumber: str | None = None
+    permitType: str | None = None
+    holderName: str | None = None
+    organizationName: str | None = None
+    issueDate: str | None = None
+    expiryDate: str | None = None
+    issuingAuthority: str | None = None
+    address: str | None = None
+    vehicleAssetIdentifier: str | None = None
+    permitCategory: str | None = None
+    referenceNumber: str | None = None
+    status: str = "NOT_APPLICABLE"
+    validationMessages: list[str] = Field(default_factory=list)
+
+
+
 
 
 

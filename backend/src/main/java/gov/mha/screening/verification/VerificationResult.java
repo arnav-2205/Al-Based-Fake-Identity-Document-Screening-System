@@ -24,6 +24,15 @@ public class VerificationResult {
     @Column(name = "document_id", nullable = false)
     private Long documentId;
 
+    @Column(name = "selected_type")
+    private String selectedType;
+
+    @Column(name = "detected_type")
+    private String detectedType;
+
+    @Column(name = "detection_confidence")
+    private Double detectionConfidence;
+
     @Column(name = "ocr_status")
     private String ocrStatus;
 
@@ -95,7 +104,26 @@ public class VerificationResult {
     @Column(name = "expiry_source")
     private String expirySource;
 
+    @Type(JsonType.class)
+    @Column(name = "visa_verification", columnDefinition = "jsonb")
+    private gov.mha.screening.verification.VerificationDtos.VisaVerificationView visaVerification;
+
+    @Type(JsonType.class)
+    @Column(name = "driving_licence_verification", columnDefinition = "jsonb")
+    private gov.mha.screening.verification.VerificationDtos.DrivingLicenceVerificationView drivingLicenceVerification;
+
+    @Type(JsonType.class)
+    @Column(name = "national_id_verification", columnDefinition = "jsonb")
+    private gov.mha.screening.verification.VerificationDtos.NationalIdVerificationView nationalIdVerification;
+
+    @Type(JsonType.class)
+    @Column(name = "permit_verification", columnDefinition = "jsonb")
+    private gov.mha.screening.verification.VerificationDtos.PermitVerificationView permitVerification;
+
+
     @Column(name = "face_match_score")
+
+
     private Double faceMatchScore;
     @Column(name = "face_match_status")
     private String faceMatchStatus;
@@ -137,6 +165,12 @@ public class VerificationResult {
     public void setId(Long id) { this.id = id; }
     public Long getDocumentId() { return documentId; }
     public void setDocumentId(Long documentId) { this.documentId = documentId; }
+    public String getSelectedType() { return selectedType; }
+    public void setSelectedType(String selectedType) { this.selectedType = selectedType; }
+    public String getDetectedType() { return detectedType; }
+    public void setDetectedType(String detectedType) { this.detectedType = detectedType; }
+    public Double getDetectionConfidence() { return detectionConfidence; }
+    public void setDetectionConfidence(Double detectionConfidence) { this.detectionConfidence = detectionConfidence; }
     public String getOcrStatus() { return ocrStatus; }
     public void setOcrStatus(String ocrStatus) { this.ocrStatus = ocrStatus; }
     public String getValidationStatus() { return validationStatus; }
@@ -191,7 +225,18 @@ public class VerificationResult {
     public void setExpiryDaysRemaining(Long expiryDaysRemaining) { this.expiryDaysRemaining = expiryDaysRemaining; }
     public String getExpirySource() { return expirySource; }
     public void setExpirySource(String expirySource) { this.expirySource = expirySource; }
+    public gov.mha.screening.verification.VerificationDtos.VisaVerificationView getVisaVerification() { return visaVerification; }
+    public void setVisaVerification(gov.mha.screening.verification.VerificationDtos.VisaVerificationView visaVerification) { this.visaVerification = visaVerification; }
+    public gov.mha.screening.verification.VerificationDtos.DrivingLicenceVerificationView getDrivingLicenceVerification() { return drivingLicenceVerification; }
+    public void setDrivingLicenceVerification(gov.mha.screening.verification.VerificationDtos.DrivingLicenceVerificationView drivingLicenceVerification) { this.drivingLicenceVerification = drivingLicenceVerification; }
+    public gov.mha.screening.verification.VerificationDtos.NationalIdVerificationView getNationalIdVerification() { return nationalIdVerification; }
+    public void setNationalIdVerification(gov.mha.screening.verification.VerificationDtos.NationalIdVerificationView nationalIdVerification) { this.nationalIdVerification = nationalIdVerification; }
+    public gov.mha.screening.verification.VerificationDtos.PermitVerificationView getPermitVerification() { return permitVerification; }
+    public void setPermitVerification(gov.mha.screening.verification.VerificationDtos.PermitVerificationView permitVerification) { this.permitVerification = permitVerification; }
+
     public Double getFaceMatchScore() { return faceMatchScore; }
+
+
     public void setFaceMatchScore(Double faceMatchScore) { this.faceMatchScore = faceMatchScore; }
     public String getFaceMatchStatus() { return faceMatchStatus; }
     public void setFaceMatchStatus(String faceMatchStatus) { this.faceMatchStatus = faceMatchStatus; }

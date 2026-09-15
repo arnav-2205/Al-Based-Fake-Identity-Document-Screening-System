@@ -72,14 +72,19 @@ public class VerificationService {
             doc.setDocumentNumber(extracted.getPassportNumber());
             documentService.save(doc);
         }
+        String selectedType = doc.getDocumentType() != null ? doc.getDocumentType() : "PASSPORT";
+        String autoDetectedType = "UNKNOWN";
+        double autoDetectedConf = 0.0;
         if (ai.ocr() != null) {
-            String detectedType = ai.ocr().documentSubtype() != null ? ai.ocr().documentSubtype()
-                    : (ai.ocr().detectedDocumentType() != null ? ai.ocr().detectedDocumentType()
-                    : (ai.ocr().visualZone() != null && ai.ocr().visualZone().get("detectedDocumentType") != null
-                    ? String.valueOf(ai.ocr().visualZone().get("detectedDocumentType")) : null));
-            if (detectedType != null && !"UNKNOWN".equalsIgnoreCase(detectedType)) {
-                doc.setDocumentType(detectedType);
-                documentService.save(doc);
+            if (ai.ocr().detectedType() != null && !ai.ocr().detectedType().isEmpty()) {
+                autoDetectedType = ai.ocr().detectedType();
+            } else if (ai.ocr().detectedDocumentType() != null && !ai.ocr().detectedDocumentType().isEmpty()) {
+                autoDetectedType = ai.ocr().detectedDocumentType();
+            } else if (ai.ocr().documentSubtype() != null && !ai.ocr().documentSubtype().isEmpty()) {
+                autoDetectedType = ai.ocr().documentSubtype();
+            }
+            if (ai.ocr().detectionConfidence() != null) {
+                autoDetectedConf = ai.ocr().detectionConfidence();
             }
         }
 
@@ -158,6 +163,9 @@ public class VerificationService {
         // ---- 10. persist verification result ------------------------
         VerificationResult vr = new VerificationResult();
         vr.setDocumentId(doc.getId());
+        vr.setSelectedType(selectedType);
+        vr.setDetectedType(autoDetectedType);
+        vr.setDetectionConfidence(round(autoDetectedConf));
         vr.setOcrStatus(ai.ocr() != null && Boolean.TRUE.equals(hasFields(ai.ocr())) ? "OK" : "PARTIAL");
         vr.setValidationStatus(validation.status());
         vr.setTamperingScore(round(tamperComposite));
@@ -189,7 +197,118 @@ public class VerificationService {
             vr.setExpiryDaysRemaining(validation.expiryValidation().daysRemaining());
             vr.setExpirySource(validation.expiryValidation().source());
         }
+
+        boolean isVisa = "VISA".equalsIgnoreCase(selectedType) || "VISA".equalsIgnoreCase(autoDetectedType);
+        AiDtos.VisaResult vrAi = ai.ocr() != null ? ai.ocr().visaResult() : null;
+        VerificationDtos.VisaVerificationView visaVerificationView;
+
+        if (isVisa && vrAi != null) {
+            visaVerificationView = new VerificationDtos.VisaVerificationView(
+                    vrAi.visaNumber(),
+                    vrAi.visaType(),
+                    vrAi.entryType() != null ? vrAi.entryType() : "UNKNOWN",
+                    vrAi.stayDuration(),
+                    vrAi.stayDurationValue(),
+                    vrAi.stayDurationUnit(),
+                    vrAi.issueDate(),
+                    vrAi.expiryDate(),
+                    vrAi.issuingCountry(),
+                    vrAi.status() != null ? vrAi.status() : "UNKNOWN",
+                    vrAi.validationMessages() != null ? vrAi.validationMessages() : List.of()
+            );
+        } else {
+            visaVerificationView = new VerificationDtos.VisaVerificationView(
+                    null, null, "UNKNOWN", null, null, null, null, null, null, "NOT_APPLICABLE",
+                    List.of("Document is not classified as Visa")
+            );
+        }
+        vr.setVisaVerification(visaVerificationView);
+
+        boolean isDl = "DRIVING_LICENCE".equalsIgnoreCase(selectedType) || "DRIVING_LICENCE".equalsIgnoreCase(autoDetectedType);
+        AiDtos.DrivingLicenceResult dlAi = ai.ocr() != null ? ai.ocr().drivingLicenceResult() : null;
+        VerificationDtos.DrivingLicenceVerificationView dlVerificationView;
+
+        if (isDl && dlAi != null) {
+            dlVerificationView = new VerificationDtos.DrivingLicenceVerificationView(
+                    dlAi.dlNumber(),
+                    dlAi.holderName(),
+                    dlAi.dateOfBirth(),
+                    dlAi.issueDate(),
+                    dlAi.expiryDate(),
+                    dlAi.state() != null ? dlAi.state() : "UNKNOWN",
+                    dlAi.issuingAuthority(),
+                    dlAi.vehicleClasses() != null ? dlAi.vehicleClasses() : List.of(),
+                    dlAi.barcodeStatus() != null ? dlAi.barcodeStatus() : "NOT_AVAILABLE",
+                    dlAi.status() != null ? dlAi.status() : "UNKNOWN",
+                    dlAi.validationMessages() != null ? dlAi.validationMessages() : List.of()
+            );
+        } else {
+            dlVerificationView = new VerificationDtos.DrivingLicenceVerificationView(
+                    null, null, null, null, null, "UNKNOWN", null, List.of(), "ABSENT", "NOT_APPLICABLE",
+                    List.of("Document is not classified as Driving Licence")
+            );
+        }
+        vr.setDrivingLicenceVerification(dlVerificationView);
+
+        boolean isNatId = "NATIONAL_ID".equalsIgnoreCase(selectedType) || "NATIONAL_ID".equalsIgnoreCase(autoDetectedType);
+        AiDtos.NationalIdResult natAi = ai.ocr() != null ? ai.ocr().nationalIdResult() : null;
+        VerificationDtos.NationalIdVerificationView natIdVerificationView;
+
+        if (isNatId && natAi != null) {
+            natIdVerificationView = new VerificationDtos.NationalIdVerificationView(
+                    natAi.idNumber(),
+                    natAi.holderName(),
+                    natAi.dateOfBirth(),
+                    natAi.idSubtype() != null ? natAi.idSubtype() : "UNKNOWN",
+                    natAi.issueDate(),
+                    natAi.expiryDate(),
+                    natAi.address(),
+                    natAi.gender(),
+                    natAi.nationality(),
+                    natAi.qrStatus() != null ? natAi.qrStatus() : "NOT_AVAILABLE",
+                    natAi.barcodeStatus() != null ? natAi.barcodeStatus() : "NOT_AVAILABLE",
+                    natAi.status() != null ? natAi.status() : "UNKNOWN",
+                    natAi.validationMessages() != null ? natAi.validationMessages() : List.of()
+            );
+        } else {
+            natIdVerificationView = new VerificationDtos.NationalIdVerificationView(
+                    null, null, null, "UNKNOWN", null, null, null, null, null, "NOT_AVAILABLE", "NOT_AVAILABLE", "NOT_APPLICABLE",
+                    List.of("Document is not classified as National ID")
+            );
+        }
+        vr.setNationalIdVerification(natIdVerificationView);
+
+        boolean isPermit = "PERMIT".equalsIgnoreCase(selectedType) || "PERMIT".equalsIgnoreCase(autoDetectedType);
+        AiDtos.PermitResult permitAi = ai.ocr() != null ? ai.ocr().permitResult() : null;
+        VerificationDtos.PermitVerificationView permitVerificationView;
+
+        if (isPermit && permitAi != null) {
+            permitVerificationView = new VerificationDtos.PermitVerificationView(
+                    permitAi.permitNumber(),
+                    permitAi.permitType(),
+                    permitAi.holderName(),
+                    permitAi.organizationName(),
+                    permitAi.issueDate(),
+                    permitAi.expiryDate(),
+                    permitAi.issuingAuthority(),
+                    permitAi.address(),
+                    permitAi.vehicleAssetIdentifier(),
+                    permitAi.permitCategory(),
+                    permitAi.referenceNumber(),
+                    permitAi.status() != null ? permitAi.status() : "UNKNOWN",
+                    permitAi.validationMessages() != null ? permitAi.validationMessages() : List.of()
+            );
+        } else {
+            permitVerificationView = new VerificationDtos.PermitVerificationView(
+                    null, null, null, null, null, null, null, null, null, null, null, "NOT_APPLICABLE",
+                    List.of("Document is not classified as Permit")
+            );
+        }
+        vr.setPermitVerification(permitVerificationView);
+
         vr.setFaceMatchScore(round(faceScore(ai.face())));
+
+
         vr.setFaceMatchStatus(faceStatus(ai.face(), faceScore(ai.face())));
         vr.setLivenessStatus(ai.face() == null ? "UNKNOWN" : String.valueOf(ai.face().livenessStatus()));
         vr.setBlacklistStatus(blacklist.matched() ? "HIT" : "CLEAR");
@@ -555,8 +674,29 @@ public class VerificationService {
             );
         }
 
+        String selectedType = vr.getSelectedType() != null ? vr.getSelectedType() : (doc.getDocumentType() != null ? doc.getDocumentType() : "PASSPORT");
+        String detectedType = vr.getDetectedType() != null ? vr.getDetectedType() : "UNKNOWN";
+        Double detectionConf = vr.getDetectionConfidence() != null ? vr.getDetectionConfidence() : 0.0;
+
+        VerificationDtos.VisaVerificationView visaView = vr.getVisaVerification() != null
+                ? vr.getVisaVerification()
+                : new VerificationDtos.VisaVerificationView(null, null, "UNKNOWN", null, null, null, null, null, null, "NOT_APPLICABLE", List.of("Document is not classified as Visa"));
+
+        VerificationDtos.DrivingLicenceVerificationView dlView = vr.getDrivingLicenceVerification() != null
+                ? vr.getDrivingLicenceVerification()
+                : new VerificationDtos.DrivingLicenceVerificationView(null, null, null, null, null, "UNKNOWN", null, List.of(), "ABSENT", "NOT_APPLICABLE", List.of("Document is not classified as Driving Licence"));
+
+        VerificationDtos.NationalIdVerificationView natIdView = vr.getNationalIdVerification() != null
+                ? vr.getNationalIdVerification()
+                : new VerificationDtos.NationalIdVerificationView(null, null, null, "UNKNOWN", null, null, null, null, null, "NOT_AVAILABLE", "NOT_AVAILABLE", "NOT_APPLICABLE", List.of("Document is not classified as National ID"));
+
+        VerificationDtos.PermitVerificationView permitView = vr.getPermitVerification() != null
+                ? vr.getPermitVerification()
+                : new VerificationDtos.PermitVerificationView(null, null, null, null, null, null, null, null, null, null, null, "NOT_APPLICABLE", List.of("Document is not classified as Permit"));
+
         return new VerificationDtos.VerificationView(
                 vr.getId(), doc.getId(), doc.getDocumentType(),
+                selectedType, detectedType, detectionConf,
                 extractedView(e),
                 vr.getOcrStatus(), vr.getValidationStatus(),
                 vr.getTamperingScore(), vr.getPhotoTampering(), vr.getTextTampering(), vr.getStampTampering(),
@@ -566,7 +706,13 @@ public class VerificationService {
                 vr.getMetadataStatus(), vr.getMetadataConfidence(), vr.getMetadataReasons(), metadataView,
                 vizMrzView,
                 expiryView,
+                visaView,
+                dlView,
+                natIdView,
+                permitView,
                 riskAssessmentView,
+
+
                 t != null ? t.elaHeatmapBase64() : heatmaps.get(vr.getId()),
                 vr.getFaceMatchScore(), vr.getFaceMatchStatus(), vr.getLivenessStatus(),
                 vr.getBlacklistStatus(), multiStatus, multiDetail,

@@ -184,10 +184,73 @@ export interface MetadataAnalysisView {
   reasons: string[];
 }
 
+export interface VisaVerificationView {
+  visaNumber?: string;
+  visaType?: string;
+  entryType?: string;
+  stayDuration?: string;
+  stayDurationValue?: number;
+  stayDurationUnit?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  issuingCountry?: string;
+  status: 'VALID' | 'INVALID' | 'PARTIAL' | 'UNKNOWN' | 'NOT_APPLICABLE';
+  validationMessages?: string[];
+}
+
+export interface DrivingLicenceVerificationView {
+  dlNumber?: string;
+  holderName?: string;
+  dateOfBirth?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  state?: string;
+  issuingAuthority?: string;
+  vehicleClasses?: string[];
+  barcodeStatus?: string;
+  status: 'VALID' | 'INVALID' | 'PARTIAL' | 'UNKNOWN' | 'NOT_APPLICABLE';
+  validationMessages?: string[];
+}
+
+export interface NationalIdVerificationView {
+  idNumber?: string;
+  holderName?: string;
+  dateOfBirth?: string;
+  idSubtype?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  address?: string;
+  gender?: string;
+  nationality?: string;
+  qrStatus?: string;
+  barcodeStatus?: string;
+  status: 'VALID' | 'INVALID' | 'PARTIAL' | 'UNKNOWN' | 'NOT_APPLICABLE';
+  validationMessages?: string[];
+}
+
+export interface PermitVerificationView {
+  permitNumber?: string;
+  permitType?: string;
+  holderName?: string;
+  organizationName?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  issuingAuthority?: string;
+  address?: string;
+  vehicleAssetIdentifier?: string;
+  permitCategory?: string;
+  referenceNumber?: string;
+  status: 'VALID' | 'INVALID' | 'PARTIAL' | 'UNKNOWN' | 'NOT_APPLICABLE';
+  validationMessages?: string[];
+}
+
 export interface VerificationView {
   verificationId: number;
   documentId: number;
   documentType: string;
+  selectedType?: string;
+  detectedType?: string;
+  detectionConfidence?: number;
   extracted: ExtractedView;
   ocrStatus: string;
   validationStatus: string;
@@ -211,7 +274,13 @@ export interface VerificationView {
   metadataAnalysis?: MetadataAnalysisView;
   vizMrzCrossValidation?: VizMrzCrossValidationView;
   expiryValidation?: ExpiryValidationView;
+  visaVerification?: VisaVerificationView;
+  drivingLicenceVerification?: DrivingLicenceVerificationView;
+  nationalIdVerification?: NationalIdVerificationView;
+  permitVerification?: PermitVerificationView;
+
   riskAssessment?: RiskAssessmentView;
+
   elaHeatmapBase64?: string;
   faceMatchScore: number;
   faceMatchStatus: string;

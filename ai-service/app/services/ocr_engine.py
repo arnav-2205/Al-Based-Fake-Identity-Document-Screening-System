@@ -1030,6 +1030,953 @@ class GenericNationalIDAdapter:
         return states
 
 
+def detect_document_type(
+    text: str,
+    raw_mrz: str | None = None,
+    boxes: list[dict[str, Any]] | None = None,
+    qr_data: dict | None = None,
+    barcode_data: dict | None = None,
+) -> tuple[str, float]:
+    """Automatically detects document type and confidence from OCR text, MRZ, and machine-readable evidence.
+
+    Supported types: PASSPORT, VISA, DRIVING_LICENCE, NATIONAL_ID, PERMIT, UNKNOWN.
+    """
+    text_norm = _normalize_text(text).upper()
+
+    # 1. PASSPORT Detection
+    if raw_mrz:
+        clean_mrz = raw_mrz.strip().upper()
+        if clean_mrz.startswith("P<") or "P<" in clean_mrz:
+            return "PASSPORT", 0.98
+
+    passport_keywords = ("PASSPORT", "PASSEPORT", "PASAPORTE", "REPUBLIK PASSPORT", "REPUBLIC PASSPORT")
+    if any(k in text_norm for k in passport_keywords):
+        if any(k in text_norm for k in ("REPUBLIC", "GOVERNMENT", "KINGDOM", "UNION", "FEDERATION", "P<", "COUNTRY CODE", "AUTHORITY")):
+            return "PASSPORT", 0.95
+        return "PASSPORT", 0.90
+
+    # 2. VISA Detection
+    if raw_mrz and (raw_mrz.strip().upper().startswith("V<") or "\nV<" in raw_mrz.strip().upper()):
+        return "VISA", 0.98
+
+    visa_keywords = (
+        "VISA", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA",
+        "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY",
+        "NUMBER OF ENTRIES", "VALID FOR", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02"
+    )
+    visa_hits = sum(1 for k in visa_keywords if k in text_norm)
+    if visa_hits >= 2 or "SCHENGEN VISA" in text_norm or "TYPE OF VISA" in text_norm:
+        return "VISA", 0.95
+    if visa_hits == 1 and "VISA" in text_norm:
+        if any(k in text_norm for k in ("PASSPORT NO", "STAY", "ENTRIES", "VALID FOR", "CATEGORY", "ISSUED AT", "BEARER")):
+            return "VISA", 0.90
+
+    # 3. DRIVING_LICENCE Detection
+    if barcode_data and barcode_data.get("barcodeDetected"):
+        b_type = str(barcode_data.get("barcodeType", "")).upper()
+        if "PDF417" in b_type or "AAMVA" in b_type:
+            return "DRIVING_LICENCE", 0.98
+
+    dl_keywords = (
+        "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
+        "LICENCE NO", "LICENSE NO", "DL NO", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT",
+        "CLASS OF VEHICLES", "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN"
+    )
+    dl_hits = sum(1 for k in dl_keywords if k in text_norm)
+    if dl_hits >= 1:
+        return "DRIVING_LICENCE", 0.95 if dl_hits >= 2 else 0.92
+
+    # 4. PERMIT Detection
+    permit_keywords = (
+        "RESIDENCE PERMIT", "RESIDENT PERMIT", "WORK PERMIT", "ENTRY PERMIT",
+        "RE-ENTRY PERMIT", "STAY PERMIT", "EMPLOYMENT PERMIT", "AUFENTHALTSTITEL",
+        "PERMIS DE SEJOUR", "PERMIT NO", "PERMIT NUMBER", "PERMIT TYPE", "TYPE OF PERMIT",
+        "AUTHORIZATION NO", "AUTHORIZATION NUMBER", "TRADE PERMIT", "COMMERCIAL PERMIT",
+        "TRANSPORT PERMIT", "EVENT PERMIT", "CONSTRUCTION PERMIT", "ENVIRONMENTAL PERMIT",
+        "PARKING PERMIT", "OCCUPANCY PERMIT"
+    )
+    permit_hits = sum(1 for k in permit_keywords if k in text_norm)
+    if permit_hits >= 1:
+        return "PERMIT", 0.95 if permit_hits >= 2 else 0.90
+
+    # 5. NATIONAL_ID Detection
+    if (qr_data and qr_data.get("qrDecoded")) or any(k in text_norm for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")):
+        return "NATIONAL_ID", 0.96
+
+    if raw_mrz:
+        clean_mrz = raw_mrz.strip().upper()
+        if any(clean_mrz.startswith(p) for p in ("I<", "A<", "C<", "ID<")):
+            return "NATIONAL_ID", 0.95
+
+    nid_keywords = (
+        "NATIONAL IDENTITY CARD", "IDENTITY CARD", "NATIONAL ID", "CITIZEN CARD",
+        "PERSONALAUSWEIS", "CARTE NATIONALE D'IDENTITE", "CARTE NATIONALE",
+        "ELECTION COMMISSION", "ELECTOR PHOTO", "VOTER ID", "EPIC NO",
+        "INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER", "PAN CARD",
+        "TAX ID", "SOCIAL SECURITY", "EMIRATES ID", "CIVIL ID"
+    )
+    nid_hits = sum(1 for k in nid_keywords if k in text_norm)
+    if nid_hits >= 1:
+        return "NATIONAL_ID", 0.95 if nid_hits >= 2 else 0.90
+
+    if any(k in text_norm for k in ("REPUBLIC", "GOVERNMENT", "NATIONAL", "STATE")) and any(k in text_norm for k in ("DOB", "DATE OF BIRTH", "SEX", "GENDER")):
+        return "NATIONAL_ID", 0.70
+
+    # 6. UNKNOWN
+    return "UNKNOWN", 0.20
+
+
+def extract_visa_fields(
+    text: str,
+    boxes: list[dict[str, Any]] | None = None,
+    raw_mrz: str | None = None,
+    fields: dict[str, str] | None = None,
+    detected_type: str = "UNKNOWN",
+) -> dict[str, Any]:
+    """Extracts dedicated visa fields (Visa Number, Visa Type, Entry Type, Stay Duration, Dates)
+
+    and produces structured validation status for Visa documents.
+    """
+    text_norm = _normalize_text(text)
+    text_upper = text_norm.upper()
+
+    visa_number: str | None = None
+    visa_type: str | None = None
+    entry_type: str = "UNKNOWN"
+    stay_duration: str | None = None
+    stay_duration_val: int | None = None
+    stay_duration_unit: str | None = None
+    issue_date: str | None = None
+    expiry_date: str | None = None
+    issuing_country: str | None = fields.get("issuingCountry") if fields else None
+
+    # 1. Visa Number
+    if raw_mrz:
+        clean_mrz = raw_mrz.strip().upper()
+        mrz_v = re.search(r"V<[A-Z0-9]{3}([A-Z0-9<]{9})", clean_mrz)
+        if mrz_v:
+            num = mrz_v.group(1).replace("<", "").strip()
+            if len(num) >= 5:
+                visa_number = num
+
+    if not visa_number:
+        vn_match = re.search(
+            r"(?<!TYPE OF )(?<!CATEGORY OF )\b(?:VISA\s*(?:NO\.?|NUMBER|#|N[O°])|DOCUMENT\s*(?:NUMBER|NO\.?))\s*[:\s|-]*\s*([A-Z0-9-]{5,15})",
+            text_upper,
+        )
+        if not vn_match:
+            vn_match = re.search(r"\bVISA\s*[:\s|-]+\s*([A-Z0-9-]*\d[A-Z0-9-]{4,14})\b", text_upper)
+
+        if vn_match:
+            candidate_num = vn_match.group(1).strip()
+            if not any(k in candidate_num for k in ("PASSPORT", "CONTROL", "RECEIPT", "APPLICATION", "TOURIST", "BUSINESS", "STUDENT", "ENTRY")):
+                visa_number = candidate_num
+
+
+    if not visa_number and fields:
+        if fields.get("visaNumber"):
+            visa_number = fields["visaNumber"]
+
+    # 2. Visa Type
+    vt_match = re.search(
+        r"(?:VISA\s*TYPE|TYPE\s*OF\s*VISA|CATEGORY|CLASS|TYPE)\s*[:\s|-]*\s*([A-Z\s]{3,20})",
+        text_upper,
+    )
+    if vt_match:
+        type_str = vt_match.group(1).strip()
+        first_word = type_str.split()[0] if type_str.split() else ""
+        if first_word in ("TOURIST", "BUSINESS", "STUDENT", "WORK", "EMPLOYMENT", "TRANSIT", "VISITOR", "DIPLOMATIC", "OFFICIAL", "ENTRY", "RESIDENCE"):
+            visa_type = first_word
+        elif len(type_str) >= 3 and not any(k in type_str for k in ("NUMBER", "NO", "DATE", "VALID", "UNTIL", "ENTRIES")):
+            visa_type = type_str
+
+    if not visa_type:
+        for cat in ("TOURIST", "BUSINESS", "STUDENT", "WORK", "EMPLOYMENT", "TRANSIT", "VISITOR", "DIPLOMATIC", "OFFICIAL"):
+            if cat in text_upper:
+                visa_type = cat
+                break
+
+    # 3. Entry Validation
+    entry_type = "UNKNOWN"
+    if any(k in text_upper for k in ("MULTIPLE ENTRY", "ENTRIES: MULT", "ENTRIES: M", "NUMBER OF ENTRIES: MULTIPLE", "ENTRIES: MULTIPLE", "NUMBER OF ENTRIES: M")) or re.search(r"(?:NUMBER\s*OF\s*ENTRIES|ENTRIES)\s*[:\s|-]*\s*(?:MULT|MULTIPLE|M\b)", text_upper):
+        entry_type = "MULTIPLE"
+    elif any(k in text_upper for k in ("SINGLE ENTRY", "ENTRIES: 01", "ENTRIES: 1", "NUMBER OF ENTRIES: SINGLE", "ENTRIES: SINGLE")) or re.search(r"(?:NUMBER\s*OF\s*ENTRIES|ENTRIES)\s*[:\s|-]*\s*(?:SINGLE|0?1\b|ONE)", text_upper):
+        entry_type = "SINGLE"
+    elif any(k in text_upper for k in ("DOUBLE ENTRY", "ENTRIES: 02", "ENTRIES: 2", "NUMBER OF ENTRIES: DOUBLE", "ENTRIES: DOUBLE")) or re.search(r"(?:NUMBER\s*OF\s*ENTRIES|ENTRIES)\s*[:\s|-]*\s*(?:DOUBLE|0?2\b|TWO)", text_upper):
+        entry_type = "DOUBLE"
+    else:
+        for line in text_upper.splitlines():
+            line_s = line.strip()
+            if "ENTRY VISA" in line_s or "VISA ENTRY" in line_s:
+                continue
+            if any(k in line_s for k in ("ENTRY", "ENTRIES", "ENTRADA")):
+                if any(k in line_s for k in ("MULT", "MULTIPLE", "M")):
+                    entry_type = "MULTIPLE"
+                    break
+                elif any(k in line_s for k in ("SINGLE", "01", "1", "ONE")):
+                    entry_type = "SINGLE"
+                    break
+                elif any(k in line_s for k in ("DOUBLE", "02", "2", "TWO")):
+                    entry_type = "DOUBLE"
+                    break
+
+
+    # 4. Stay Duration
+    sd_match = re.search(
+        r"(?:DURATION\s*OF\s*STAY|STAY\s*DURATION|STAY|DURATION|PERIOD\s*OF\s*STAY)\s*[:\s|-]*\s*(\d{1,4})\s*(DAYS?|MONTHS?|YEARS?|DAY|MONTH|YEAR)",
+        text_upper,
+    )
+    if not sd_match:
+        sd_match = re.search(r"\b(\d{1,4})\s*(DAYS?|MONTHS?|YEARS?)\b", text_upper)
+
+    if sd_match:
+        try:
+            val_num = int(sd_match.group(1))
+            unit_str = sd_match.group(2).strip()
+            if unit_str.startswith("DAY"):
+                unit_str = "DAYS"
+            elif unit_str.startswith("MONTH"):
+                unit_str = "MONTHS"
+            elif unit_str.startswith("YEAR"):
+                unit_str = "YEARS"
+            stay_duration_val = val_num
+            stay_duration_unit = unit_str
+            stay_duration = f"{val_num} {unit_str}"
+        except Exception:
+            pass
+
+    # 5. Issue & Expiry Dates
+    id_match = re.search(r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUED|VALID\s*FROM|FROM)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+    if id_match:
+        issue_date = _normalize_date(id_match.group(1))
+    elif fields and fields.get("issueDate"):
+        issue_date = fields["issueDate"]
+
+    exp_match = re.search(r"(?:EXPIRY\s*DATE|DATE\s*OF\s*EXPIRY|VALID\s*UNTIL|UNTIL|EXPIRATION)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+    if exp_match:
+        expiry_date = _normalize_date(exp_match.group(1))
+    elif fields and fields.get("expiryDate"):
+        expiry_date = fields["expiryDate"]
+
+    # 6. Check if Document is a Visa
+    is_visa = (detected_type == "VISA") or any(k in text_upper for k in ("SCHENGEN VISA", "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY", "ENTRIES: MULT", "ENTRIES: 01"))
+
+    if not is_visa:
+        return {
+            "visaNumber": None,
+            "visaType": None,
+            "entryType": "UNKNOWN",
+            "stayDuration": None,
+            "stayDurationValue": None,
+            "stayDurationUnit": None,
+            "issueDate": None,
+            "expiryDate": None,
+            "issuingCountry": None,
+            "status": "NOT_APPLICABLE",
+            "validationMessages": ["Document is not classified as Visa"],
+        }
+
+    # 7. Status & Validation Messages
+    msgs: list[str] = []
+    if not visa_number:
+        msgs.append("Visa number not confidently extracted")
+    if entry_type == "UNKNOWN":
+        msgs.append("Entry type unavailable")
+    if not stay_duration:
+        msgs.append("Stay duration unavailable")
+
+    is_expired = False
+    if expiry_date:
+        try:
+            exp_dt = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            if datetime.now().date() > exp_dt:
+                is_expired = True
+                msgs.append("Visa has expired")
+        except Exception:
+            pass
+
+    if is_expired:
+        status = "INVALID"
+    elif visa_number and entry_type != "UNKNOWN" and stay_duration and not msgs:
+        status = "VALID"
+    elif visa_number or entry_type != "UNKNOWN" or stay_duration:
+        status = "PARTIAL"
+    else:
+        status = "UNKNOWN"
+
+    return {
+        "visaNumber": visa_number,
+        "visaType": visa_type,
+        "entryType": entry_type,
+        "stayDuration": stay_duration,
+        "stayDurationValue": stay_duration_val,
+        "stayDurationUnit": stay_duration_unit,
+        "issueDate": issue_date,
+        "expiryDate": expiry_date,
+        "issuingCountry": issuing_country,
+        "status": status,
+        "validationMessages": msgs,
+    }
+
+
+def extract_dl_fields(
+    text: str,
+    boxes: list[dict[str, Any]] | None = None,
+    barcode_info: dict[str, Any] | None = None,
+    fields: dict[str, str] | None = None,
+    detected_type: str = "UNKNOWN",
+) -> dict[str, Any]:
+    """Extracts dedicated Driving Licence fields (DL Number, Holder Name, DOB, Issue Date, Expiry Date, State, Vehicle Classes, Barcode Status)
+
+    and produces structured validation status for Driving Licence documents.
+    """
+    text_norm = _normalize_text(text)
+    text_upper = text_norm.upper()
+
+    dl_number: str | None = None
+    holder_name: str | None = None
+    dob: str | None = None
+    issue_date: str | None = None
+    expiry_date: str | None = None
+    state: str | None = None
+    issuing_authority: str | None = None
+    vehicle_classes: list[str] = []
+    barcode_status: str = "NOT_AVAILABLE"
+
+    # 1. Barcode / PDF417 Integration
+    if barcode_info and barcode_info.get("barcodeDetected"):
+        if barcode_info.get("barcodeDecoded") and barcode_info.get("barcodeData"):
+            barcode_status = "DECODED"
+            b_data = str(barcode_info.get("barcodeData"))
+            m_bc_dl = re.search(r"\b([A-Z]{2}[0-9O]{1,2}\s*[-/]?\s*[0-9O]{4}\s*[-/]?\s*[0-9O]{7,11})\b", b_data.upper())
+            if m_bc_dl:
+                dl_number = m_bc_dl.group(1).replace(" ", "")
+        else:
+            barcode_status = "UNREADABLE"
+
+    # 2. DL Number Extraction
+    if not dl_number:
+        m_dl = re.search(r"\b([A-Z]{2}[-/\s]?[0-9O]{1,4}[-/\s]?[0-9O]{4}[-/\s]?[0-9O]{5,11})\b", text_upper)
+        if m_dl:
+            cand_dl = m_dl.group(1).strip()
+            if not any(k in cand_dl for k in ("PASSPORT", "CONTROL", "RECEIPT", "APPLICATION", "LICENCE", "LICENSE")):
+                dl_number = cand_dl
+
+    if not dl_number:
+        m_lbl = re.search(
+            r"(?:DL\s*(?:NO|NUMBER|#)?|LICENCE\s*(?:NO|NUMBER)?|LICENSE\s*(?:NO|NUMBER)?|DRIVING\s*LICENCE\s*NO|DRIVING\s*LICENSE\s*NO)\s*[:\s|-]*\s*([A-Z0-9-/ ]{6,25})",
+            text_upper,
+        )
+        if m_lbl:
+            cand_dl = m_lbl.group(1).strip()
+            if not any(k in cand_dl for k in ("PASSPORT", "RECEIPT", "APPLICATION")):
+                dl_number = cand_dl
+
+    if not dl_number and fields and fields.get("documentNumber"):
+        if not fields.get("documentNumber", "").startswith("P<"):
+            dl_number = fields["documentNumber"]
+
+    # 3. Holder Name Extraction
+    if fields and (fields.get("name") or fields.get("holderName")):
+        cand_name = fields.get("name") or fields.get("holderName")
+        if cand_name and not any(k in cand_name.upper() for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "GOVERNMENT", "DEPARTMENT", "INDIA", "STATE")):
+            holder_name = cand_name
+
+    if not holder_name:
+        m_name = re.search(r"(?:NAME\s*OF\s*HOLDER|HOLDER\s*NAME|NAME)\s*[:\s|-]*\s*([A-Z\ '.]{3,30})", text_upper)
+        if m_name:
+            c_name = m_name.group(1).strip()
+            c_name = re.split(r"\b(?:S/O|D/O|W/O|SON OF|DAUGHTER OF|WIFE OF)\b", c_name)[0].strip()
+            if len(c_name) >= 3 and not any(k in c_name for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "AUTHORITY", "UNION", "GOVT", "INDIA", "STATE", "ADDRESS", "DOB", "DATE")):
+                holder_name = c_name
+
+    # 4. Date of Birth
+    if fields and fields.get("dateOfBirth"):
+        dob = fields["dateOfBirth"]
+    else:
+        m_dob = re.search(r"(?:DOB|DATE\s*OF\s*BIRTH|D\.O\.B|BIRTH\s*DATE)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+        if m_dob:
+            dob = _normalize_date(m_dob.group(1))
+
+    # 5. Issue Date
+    if fields and fields.get("issueDate"):
+        issue_date = fields["issueDate"]
+    else:
+        m_iss = re.search(r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUE|VALID\s*FROM|ISSUED\s*ON|DOI)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+        if m_iss:
+            issue_date = _normalize_date(m_iss.group(1))
+
+    # 6. Expiry / Validity Date (CRITICAL REGRESSION REQUIREMENT)
+    # Expiry MUST NOT be filled with issue_date. It stays None if no explicit expiry match is found!
+    m_exp = re.search(r"(?:VALID\s*TILL|VALID\s*UPTO|VALID\s*UNTIL|EXPIRY\s*DATE|EXPIRY|VALIDITY)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+    if m_exp:
+        parsed_exp = _normalize_date(m_exp.group(1))
+        if parsed_exp and parsed_exp != issue_date:
+            expiry_date = parsed_exp
+    elif fields and fields.get("expiryDate") and fields.get("expiryDate") != issue_date:
+        expiry_date = fields["expiryDate"]
+
+    # 7. State & Issuing Authority
+    indian_states = {
+        "MH": "MAHARASHTRA", "DL": "DELHI", "KA": "KARNATAKA", "TN": "TAMIL NADU",
+        "RJ": "RAJASTHAN", "GJ": "GUJARAT", "UP": "UTTAR PRADESH", "HR": "HARYANA",
+        "WB": "WEST BENGAL", "KL": "KERALA", "AP": "ANDHRA PRADESH", "TS": "TELANGANA",
+        "MP": "MADHYA PRADESH", "PB": "PUNJAB", "BR": "BIHAR", "OR": "ODISHA", "OD": "ODISHA"
+    }
+    if dl_number and len(dl_number) >= 2:
+        prefix = dl_number[:2].upper()
+        if prefix in indian_states:
+            state = indian_states[prefix]
+
+    if not state:
+        for st_name in indian_states.values():
+            if st_name in text_upper:
+                state = st_name
+                break
+
+    m_rto = re.search(r"(?:RTO|LICENSING\s*AUTHORITY|ISSUING\s*AUTHORITY|TRANSPORT\s*DEPARTMENT)\s*[:\s|-]*\s*([A-Z0-9\s,]{3,30})", text_upper)
+    if m_rto:
+        issuing_authority = m_rto.group(1).strip()
+    elif state:
+        issuing_authority = f"TRANSPORT DEPARTMENT, {state}"
+
+    # 8. Vehicle Classes (COV)
+    cov_matches = re.findall(r"\b(MCWG|LMV|HMV|TRANS|NON-TRANS|MCWOG|3W-CAB|LMV-NT|MCW|COV)\b", text_upper)
+    if cov_matches:
+        vehicle_classes = sorted(list(set([c for c in cov_matches if c != "COV"])))
+
+    # 9. Check if Document is a Driving Licence
+    is_dl = (detected_type == "DRIVING_LICENCE") or any(
+        k in text_upper for k in ("DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "LICENCE NO", "LICENSE NO", "DL NO", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN", "CLASS OF VEHICLE")
+    )
+
+    if not is_dl:
+        return {
+            "dlNumber": None,
+            "holderName": None,
+            "dateOfBirth": None,
+            "issueDate": None,
+            "expiryDate": None,
+            "state": None,
+            "issuingAuthority": None,
+            "vehicleClasses": [],
+            "barcodeStatus": barcode_status,
+            "status": "NOT_APPLICABLE",
+            "validationMessages": ["Document is not classified as Driving Licence"],
+        }
+
+    # 10. Status & Validation Messages
+    msgs: list[str] = []
+    if not dl_number:
+        msgs.append("DL number not confidently extracted")
+    if not holder_name:
+        msgs.append("Holder name unavailable")
+    if not dob:
+        msgs.append("Date of birth unavailable")
+    if not issue_date:
+        msgs.append("Issue date unavailable")
+    if not expiry_date:
+        msgs.append("Expiry date unavailable")
+
+    invalid_dates = False
+    is_expired = False
+
+    if dob and issue_date:
+        try:
+            d_dob = datetime.strptime(dob, "%Y-%m-%d").date()
+            d_iss = datetime.strptime(issue_date, "%Y-%m-%d").date()
+            if d_dob >= d_iss:
+                msgs.append("Date of birth must be prior to issue date")
+                invalid_dates = True
+        except Exception:
+            pass
+
+    if issue_date and expiry_date:
+        try:
+            d_iss = datetime.strptime(issue_date, "%Y-%m-%d").date()
+            d_exp = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            if d_iss >= d_exp:
+                msgs.append("Issue date must be prior to expiry date")
+                invalid_dates = True
+        except Exception:
+            pass
+
+    if expiry_date:
+        try:
+            d_exp = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            if datetime.now().date() > d_exp:
+                msgs.append("Driving Licence has expired")
+                is_expired = True
+        except Exception:
+            pass
+
+    if invalid_dates or is_expired:
+        status = "INVALID"
+    elif dl_number and holder_name and dob and issue_date and expiry_date and not msgs:
+        status = "VALID"
+    elif dl_number or holder_name or dob or issue_date:
+        status = "PARTIAL"
+    else:
+        status = "UNKNOWN"
+
+    return {
+        "dlNumber": dl_number,
+        "holderName": holder_name,
+        "dateOfBirth": dob,
+        "issueDate": issue_date,
+        "expiryDate": expiry_date,
+        "state": state,
+        "issuingAuthority": issuing_authority,
+        "vehicleClasses": vehicle_classes,
+        "barcodeStatus": barcode_status,
+        "status": status,
+        "validationMessages": msgs,
+    }
+
+
+_VERHOEFF_D = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+    [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+    [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+    [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
+    [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+    [6, 5, 9, 8, 7, 1, 0, 4, 3, 2],
+    [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+    [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
+    [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+]
+
+_VERHOEFF_P = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+    [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+    [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+    [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
+    [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+    [2, 7, 9, 3, 8, 0, 6, 4, 1, 5],
+    [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+]
+
+
+def _validate_verhoeff(number_str: str) -> bool:
+    digits = [int(c) for c in reversed(number_str) if c.isdigit()]
+    if not digits:
+        return False
+    c = 0
+    for i, d in enumerate(digits):
+        c = _VERHOEFF_D[c][_VERHOEFF_P[i % 8][d]]
+    return c == 0
+
+
+def extract_national_id_fields(
+    text: str,
+    boxes: list[dict[str, Any]] | None = None,
+    qr_info: dict[str, Any] | None = None,
+    barcode_info: dict[str, Any] | None = None,
+    fields: dict[str, str] | None = None,
+    detected_type: str = "UNKNOWN",
+) -> dict[str, Any]:
+    """Extracts dedicated National ID fields (ID Number, Holder Name, DOB, Subtype, QR/Barcode Status)
+
+    and produces structured validation status for National ID documents (including Verhoeff checksum for Aadhaar).
+    """
+    text_norm = _normalize_text(text)
+    text_upper = text_norm.upper()
+    msgs: list[str] = []
+
+    id_number: str | None = None
+    holder_name: str | None = None
+    dob: str | None = None
+    id_subtype: str = "UNKNOWN"
+    issue_date: str | None = None
+    expiry_date: str | None = None
+    address: str | None = None
+    gender: str | None = None
+    nationality: str | None = None
+
+    # QR and Barcode Status
+    qr_status: str = "NOT_AVAILABLE"
+    if qr_info:
+        if qr_info.get("qrDetected"):
+            qr_status = "DECODED" if qr_info.get("qrDecoded") else "UNREADABLE"
+        elif qr_info.get("qrStatus"):
+            qr_status = qr_info.get("qrStatus")
+
+    barcode_status: str = "NOT_AVAILABLE"
+    if barcode_info:
+        if barcode_info.get("barcodeDetected"):
+            barcode_status = "DECODED" if barcode_info.get("barcodeDecoded") else "UNREADABLE"
+        elif barcode_info.get("barcodeStatus"):
+            barcode_status = barcode_info.get("barcodeStatus")
+
+    # 1. Subtype Detection (AADHAAR vs OTHER_NATIONAL_ID vs UNKNOWN)
+    if "AADHAAR" in text_upper or "UNIQUE IDENTIFICATION" in text_upper or ("GOVERNMENT OF INDIA" in text_upper and ("DOB" in text_upper or "MALE" in text_upper or "FEMALE" in text_upper)):
+        id_subtype = "AADHAAR"
+    elif "PERSONALAUSWEIS" in text_upper or "VOTER ID" in text_upper or "PAN CARD" in text_upper or "CARTE NATIONALE" in text_upper or "NATIONAL ID" in text_upper:
+        id_subtype = "OTHER_NATIONAL_ID"
+    elif detected_type == "NATIONAL_ID":
+        id_subtype = "OTHER_NATIONAL_ID"
+
+    # If QR data contains 12-digit Aadhaar / Indian identity, set AADHAAR
+    qr_data = qr_info.get("qrData") if qr_info else None
+    if qr_data and (qr_data.get("uid") or (qr_data.get("documentNumber") and len(str(qr_data.get("documentNumber")).replace(" ", "")) == 12)):
+        id_subtype = "AADHAAR"
+
+    # 2. Field Fallbacks from fields dictionary
+    if fields:
+        if fields.get("documentNumber") and not fields.get("documentNumber", "").startswith("P<"):
+            id_number = fields.get("documentNumber")
+        if fields.get("name") or fields.get("holderName"):
+            holder_name = fields.get("name") or fields.get("holderName")
+        if fields.get("dateOfBirth"):
+            dob = fields.get("dateOfBirth")
+        if fields.get("gender"):
+            gender = fields.get("gender")
+        if fields.get("address"):
+            address = fields.get("address")
+        if fields.get("nationality"):
+            nationality = fields.get("nationality")
+        if fields.get("issueDate"):
+            issue_date = fields.get("issueDate")
+        if fields.get("expiryDate"):
+            expiry_date = fields.get("expiryDate")
+
+    # If QR data is present, extract QR identity fields for cross-checking
+    qr_id_num = None
+    qr_name = None
+    qr_dob = None
+    if qr_data:
+        qr_id_num = qr_data.get("uid") or qr_data.get("documentNumber")
+        qr_name = qr_data.get("name")
+        qr_dob = qr_data.get("dob")
+        if not id_number and qr_id_num:
+            id_number = str(qr_id_num)
+        if not holder_name and qr_name:
+            holder_name = str(qr_name)
+        if not dob and qr_dob:
+            dob = str(qr_dob)
+
+    # 3. ID Number Extraction & Format Normalization
+    if not id_number:
+        m_aadh = re.search(r"\b([0-9]{4}\s+[0-9]{4}\s+[0-9]{4})\b", text_norm)
+        if m_aadh:
+            id_number = m_aadh.group(1)
+        else:
+            m_aadh_raw = re.search(r"\b([0-9]{12})\b", text_norm.replace(" ", ""))
+            if m_aadh_raw:
+                raw_num = m_aadh_raw.group(1)
+                id_number = f"{raw_num[:4]} {raw_num[4:8]} {raw_num[8:]}"
+
+    # Check incomplete Aadhaar numbers (e.g. 10 or 11 digits)
+    if not id_number:
+        m_part = re.search(r"\b([0-9]{4}\s+[0-9]{4}\s+[0-9]{2,3})\b", text_norm)
+        if m_part:
+            id_number = m_part.group(1)
+
+    digits_only = re.sub(r"[^\d]", "", id_number) if id_number else ""
+
+    # 4. QR Cross-Checks
+    if qr_id_num and id_number:
+        clean_qr_id = re.sub(r"[^\d]", "", str(qr_id_num))
+        if digits_only and clean_qr_id:
+            if digits_only == clean_qr_id:
+                msgs.append("QR & Visual OCR ID Number corroborate")
+            else:
+                msgs.append(f"QR ID Number '{clean_qr_id}' conflicts with Visual OCR ID Number '{digits_only}'")
+
+    if qr_name and holder_name:
+        if qr_name.strip().upper() == holder_name.strip().upper():
+            msgs.append("QR & Visual OCR Name corroborate")
+
+    # 5. Validation Status Determination
+    status = "UNKNOWN"
+    if id_subtype == "AADHAAR":
+        if len(digits_only) == 12:
+            if _validate_verhoeff(digits_only):
+                status = "VALID"
+            else:
+                status = "INVALID"
+                msgs.append("Aadhaar checksum validation failed")
+        elif len(digits_only) in (10, 11):
+            status = "PARTIAL"
+            msgs.append("Incomplete Aadhaar number")
+        elif not digits_only:
+            status = "PARTIAL"
+            msgs.append("National ID number unavailable")
+        else:
+            status = "INVALID"
+            msgs.append("Invalid Aadhaar number length")
+    else:
+        if id_number and holder_name and dob:
+            status = "VALID"
+        elif id_number or holder_name or dob:
+            status = "PARTIAL"
+        else:
+            status = "UNKNOWN"
+
+    if not holder_name:
+        msgs.append("Holder name unavailable")
+    if not dob:
+        msgs.append("Date of birth unavailable")
+
+    return {
+        "idNumber": id_number,
+        "holderName": holder_name,
+        "dateOfBirth": dob,
+        "idSubtype": id_subtype,
+        "issueDate": issue_date,
+        "expiryDate": expiry_date,
+        "qrStatus": qr_status,
+        "barcodeStatus": barcode_status,
+        "status": status,
+        "validationMessages": msgs,
+    }
+
+
+def extract_permit_fields(
+    text: str,
+    boxes: list[dict[str, Any]] | None = None,
+    barcode_info: dict[str, Any] | None = None,
+    qr_info: dict[str, Any] | None = None,
+    fields: dict[str, str] | None = None,
+    detected_type: str = "UNKNOWN",
+) -> dict[str, Any]:
+    """Extracts dedicated Permit fields (Permit Number, Permit Type, Holder/Organization Name, Issue/Expiry Dates, Issuing Authority)
+
+    and produces structured validation status for Permit documents.
+    """
+    text_norm = _normalize_text(text)
+    text_upper = text_norm.upper()
+
+    permit_number: str | None = None
+    permit_type: str | None = None
+    holder_name: str | None = None
+    organization_name: str | None = None
+    issue_date: str | None = None
+    expiry_date: str | None = None
+    issuing_authority: str | None = None
+    address: str | None = None
+    vehicle_asset_identifier: str | None = None
+    permit_category: str | None = None
+    reference_number: str | None = None
+
+    # 1. Check if Document is a Permit
+    permit_landmarks = (
+        "PERMIT", "AUTHORIZATION", "RESIDENCE PERMIT", "WORK PERMIT", "PERMIT NO", "PERMIT NUMBER",
+        "PERMIT TYPE", "PERMIT ID", "LICENSE/PERMIT", "LICENCE/PERMIT", "AUFENTHALTSTITEL",
+        "PERMIS DE SEJOUR", "TRADE PERMIT", "COMMERCIAL PERMIT", "TRANSPORT PERMIT", "EVENT PERMIT",
+        "CONSTRUCTION PERMIT", "ENVIRONMENTAL PERMIT", "PARKING PERMIT", "OCCUPANCY PERMIT"
+    )
+    is_permit = (detected_type == "PERMIT") or any(k in text_upper for k in permit_landmarks)
+
+    if not is_permit:
+        return {
+            "permitNumber": None,
+            "permitType": None,
+            "holderName": None,
+            "organizationName": None,
+            "issueDate": None,
+            "expiryDate": None,
+            "issuingAuthority": None,
+            "address": None,
+            "vehicleAssetIdentifier": None,
+            "permitCategory": None,
+            "referenceNumber": None,
+            "status": "NOT_APPLICABLE",
+            "validationMessages": ["Document is not classified as Permit"],
+        }
+
+    # 2. Permit Number Extraction
+    m_pnum = re.search(
+        r"(?:PERMIT\s*(?:NO\.?|NUMBER|ID|#)|LICENSE/PERMIT\s*NO\.?|LICENCE/PERMIT\s*NO\.?|AUTHORIZATION\s*(?:NO\.?|NUMBER|ID|#)|PERMIT\s*REF)\s*[:\s|-]*\s*([A-Z0-9-/ ]{4,30})",
+        text_upper,
+    )
+    if m_pnum:
+        cand = m_pnum.group(1).strip()
+        if not any(k in cand for k in ("APPLICATION", "RECEIPT", "TRANSACTION", "PASSPORT", "CONTROL")):
+            cand = re.split(r"\b(?:DATE|TYPE|NAME|ISSUED|HOLDER|EXPIRY|VALID)\b", cand)[0].strip()
+            if len(cand) >= 3:
+                permit_number = cand
+
+    if not permit_number:
+        m_ref = re.search(r"(?:REFERENCE\s*(?:NO\.?|NUMBER|ID|#)|REF\s*(?:NO\.?|NUMBER|#))\s*[:\s|-]*\s*([A-Z0-9-/ ]{4,30})", text_upper)
+        if m_ref:
+            cand_ref = m_ref.group(1).strip()
+            cand_ref = re.split(r"\b(?:DATE|TYPE|NAME|ISSUED|HOLDER|EXPIRY|VALID)\b", cand_ref)[0].strip()
+            if len(cand_ref) >= 3:
+                reference_number = cand_ref
+
+    if not permit_number and reference_number:
+        permit_number = reference_number
+
+    if not permit_number and fields and fields.get("documentNumber"):
+        if not fields.get("documentNumber", "").startswith("P<"):
+            permit_number = fields["documentNumber"]
+
+    # 3. Permit Type / Category Extraction
+    m_ptype = re.search(
+        r"(?:PERMIT\s*TYPE|TYPE\s*OF\s*PERMIT|CATEGORY|PERMIT\s*CATEGORY|CLASSIFICATION)\s*[:\s|-]*\s*([A-Z\s/-]{3,30})",
+        text_upper,
+    )
+    if m_ptype:
+        cand_t = m_ptype.group(1).strip()
+        cand_t = re.split(r"\b(?:NO|NUMBER|DATE|HOLDER|NAME|EXPIRY|VALID|ISSUED)\b", cand_t)[0].strip()
+        if len(cand_t) >= 3:
+            permit_type = cand_t
+            permit_category = cand_t
+
+    if not permit_type:
+        known_subtypes = (
+            "TRANSPORT PERMIT", "COMMERCIAL PERMIT", "WORK PERMIT", "EVENT PERMIT",
+            "TRADE PERMIT", "CONSTRUCTION PERMIT", "ENVIRONMENTAL PERMIT", "PARKING PERMIT",
+            "OCCUPANCY PERMIT", "RESIDENCE PERMIT", "RESIDENT PERMIT", "BUILDING PERMIT",
+            "SPECIAL PERMIT", "ENTRY PERMIT", "STAY PERMIT"
+        )
+        for st in known_subtypes:
+            if st in text_upper:
+                permit_type = st
+                permit_category = st
+                break
+
+    # 4. Holder Name / Organization Name Extraction
+    m_holder = re.search(
+        r"(?:PERMIT\s*HOLDER|HOLDER\s*NAME|HOLDER|LICENSEE|APPLICANT|NAME\s*OF\s*HOLDER|NAME)\s*[:\s|-]*\s*([A-Z\ '.]{3,40})",
+        text_upper,
+    )
+    if m_holder:
+        c_h = m_holder.group(1).strip()
+        c_h = re.split(r"\b(?:ADDRESS|DOB|DATE|NO|NUMBER|TYPE|EXPIRY|ISSUED|AUTHORITY|DEPARTMENT)\b", c_h)[0].strip()
+        if len(c_h) >= 3 and not any(k in c_h for k in ("DEPARTMENT", "GOVERNMENT", "AUTHORITY", "MUNICIPAL", "CORPORATION", "MINISTRY", "STATE", "PERMIT")):
+            holder_name = c_h
+
+    m_org = re.search(
+        r"(?:ORGANIZATION|ORGANISATION|COMPANY|ENTITY|BUSINESS\s*NAME|FIRM\s*NAME)\s*[:\s|-]*\s*([A-Z0-9\ '.&,-]{3,50})",
+        text_upper,
+    )
+    if m_org:
+        c_o = m_org.group(1).strip()
+        c_o = re.split(r"\b(?:ADDRESS|DOB|DATE|NO|NUMBER|TYPE|EXPIRY|ISSUED|AUTHORITY)\b", c_o)[0].strip()
+        if len(c_o) >= 3:
+            organization_name = c_o
+
+    if not holder_name and fields and (fields.get("name") or fields.get("holderName")):
+        cand_name = fields.get("name") or fields.get("holderName")
+        if cand_name and not any(k in cand_name.upper() for k in ("PERMIT", "GOVERNMENT", "DEPARTMENT", "AUTHORITY", "MINISTRY")):
+            holder_name = cand_name
+
+    # 5. Issue Date
+    m_iss = re.search(
+        r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUED\s*ON|VALID\s*FROM|EFFECTIVE\s*FROM|ISSUED)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})",
+        text_upper,
+    )
+    if m_iss:
+        issue_date = _normalize_date(m_iss.group(1))
+    elif fields and fields.get("issueDate"):
+        issue_date = fields["issueDate"]
+
+    # 6. Expiry Date (MUST remain None if unreadable)
+    m_exp = re.search(
+        r"(?:EXPIRY\s*DATE|EXPIRY|VALID\s*UNTIL|VALID\s*TILL|VALID\s*UPTO|VALID\s*THROUGH|VALIDITY)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})",
+        text_upper,
+    )
+    if m_exp:
+        parsed_exp = _normalize_date(m_exp.group(1))
+        if parsed_exp and parsed_exp != issue_date:
+            expiry_date = parsed_exp
+    elif fields and fields.get("expiryDate") and fields.get("expiryDate") != issue_date:
+        expiry_date = fields["expiryDate"]
+
+    # 7. Issuing Authority
+    m_auth = re.search(
+        r"(?:ISSUING\s*AUTHORITY|ISSUED\s*BY|AUTHORITY|DEPARTMENT|GOVERNMENT\b|MUNICIPAL\s*CORPORATION|TRANSPORT\s*DEPARTMENT)\s*[:\s|-]*\s*([A-Z0-9\s,.-]{3,50})",
+        text_upper,
+    )
+    if m_auth:
+        c_auth = m_auth.group(1).strip()
+        c_auth = c_auth.split("\n")[0].strip()
+        c_auth = re.split(r"\b(?:ISSUE|DATE|PERMIT|HOLDER|NAME|ADDRESS|EXPIRY|VALID)\b", c_auth)[0].strip()
+        if len(c_auth) >= 3 and c_auth != holder_name:
+            issuing_authority = c_auth
+
+    # 8. Address
+    m_addr = re.search(r"(?:ADDRESS|LOCATION|PREMISES)\s*[:\s|-]*\s*([A-Z0-9\s,.-]{5,60})", text_upper)
+    if m_addr:
+        c_addr = m_addr.group(1).strip()
+        c_addr = c_addr.split("\n")[0].strip()
+        c_addr = re.split(r"\b(?:DATE|PERMIT|HOLDER|EXPIRY)\b", c_addr)[0].strip()
+        if len(c_addr) >= 5:
+            address = c_addr
+    elif fields and fields.get("address"):
+        address = fields["address"]
+
+    # 9. Vehicle / Asset Identifier
+    m_asset = re.search(r"(?:VEHICLE\s*(?:NO|REG|ID)?|REGISTRATION\s*NO|ASSET\s*ID)\s*[:\s|-]*\s*([A-Z0-9-]{3,20})", text_upper)
+    if m_asset:
+        vehicle_asset_identifier = m_asset.group(1).strip().split("\n")[0].strip()
+
+    # 10. Status & Validation Messages
+    msgs: list[str] = []
+    if not permit_number:
+        msgs.append("Permit number not confidently extracted")
+    if not permit_type:
+        msgs.append("Permit type unavailable")
+    if not holder_name and not organization_name:
+        msgs.append("Holder or organization name unavailable")
+    if not issue_date:
+        msgs.append("Issue date unavailable")
+    if not expiry_date:
+        msgs.append("Expiry date unavailable")
+
+    invalid_dates = False
+    is_expired = False
+
+    if issue_date and expiry_date:
+        try:
+            d_iss = datetime.strptime(issue_date, "%Y-%m-%d").date()
+            d_exp = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            if d_iss >= d_exp:
+                msgs.append("Permit issue date must be prior to expiry date")
+                invalid_dates = True
+        except Exception:
+            pass
+
+    if expiry_date:
+        try:
+            d_exp = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+            if datetime.now().date() > d_exp:
+                msgs.append("Permit has expired")
+                is_expired = True
+        except Exception:
+            pass
+
+    if invalid_dates or is_expired:
+        status = "INVALID"
+    elif permit_number and permit_type and (holder_name or organization_name) and issue_date and expiry_date:
+        status = "VALID"
+    elif permit_number or permit_type or holder_name or organization_name or issue_date or expiry_date:
+        status = "PARTIAL"
+    else:
+        status = "UNKNOWN"
+
+
+    return {
+        "permitNumber": permit_number,
+        "permitType": permit_type,
+        "holderName": holder_name,
+        "organizationName": organization_name,
+        "issueDate": issue_date,
+        "expiryDate": expiry_date,
+        "issuingAuthority": issuing_authority,
+        "address": address,
+        "vehicleAssetIdentifier": vehicle_asset_identifier,
+        "permitCategory": permit_category,
+        "referenceNumber": reference_number,
+        "status": status,
+        "validationMessages": msgs,
+    }
+
+
 # ==============================================================================
 # MAIN ENTRYPOINT
 # ==============================================================================
@@ -1159,6 +2106,33 @@ def extract(data: bytes) -> dict[str, Any]:
     raw_ocr_conf = round(ocr_confidence if ocr_confidence is not None else 0.85, 3)
     overall_conf = field_extraction_conf if valid_confs else raw_ocr_conf
 
+    extraction_time_ms = round((time.time() - start_time) * 1000, 1)
+
+    # P2.1 Automatic Document-Type Detection
+    autodetected_type, autodetected_conf = detect_document_type(
+        text, raw_mrz=raw_mrz, boxes=boxes, qr_data=qr_info.get("qrData"), barcode_data=barcode_info
+    )
+
+    # P2.2 Dedicated Visa Extraction
+    visa_res = extract_visa_fields(
+        text, boxes=boxes, raw_mrz=raw_mrz, fields=fields, detected_type=autodetected_type
+    )
+
+    # P2.3 Dedicated Driving Licence Extraction
+    dl_res = extract_dl_fields(
+        text, boxes=boxes, barcode_info=barcode_info, fields=fields, detected_type=autodetected_type
+    )
+
+    # P2.4 Dedicated National ID Extraction
+    nat_res = extract_national_id_fields(
+        text, boxes=boxes, qr_info=qr_info, barcode_info=barcode_info, fields=fields, detected_type=autodetected_type
+    )
+
+    # P2.5 Dedicated Permit Extraction
+    permit_res = extract_permit_fields(
+        text, boxes=boxes, barcode_info=barcode_info, qr_info=qr_info, fields=fields, detected_type=autodetected_type
+    )
+
     visual_zone_payload = {
         **fields,
         "rawText": text[:2500] if text else "",
@@ -1187,9 +2161,11 @@ def extract(data: bytes) -> dict[str, Any]:
         "barcodeType": barcode_info["barcodeType"],
         "barcodeData": barcode_info["barcodeData"],
         "mrzStatus": mrz_status,
+        "visaResult": visa_res,
+        "drivingLicenceResult": dl_res,
+        "nationalIdResult": nat_res,
+        "permitResult": permit_res,
     }
-
-    extraction_time_ms = round((time.time() - start_time) * 1000, 1)
 
     return {
         "mrz": raw_mrz,
@@ -1208,6 +2184,8 @@ def extract(data: bytes) -> dict[str, Any]:
         "detectedDocumentType": doc_type,
         "documentCategory": doc_category,
         "documentSubtype": doc_subtype,
+        "detectedType": autodetected_type,
+        "detectionConfidence": autodetected_conf,
         "applicableFields": applicable_fields,
         "applicableChecks": applicable_checks,
         "issuingCountry": issuing_country,
@@ -1225,4 +2203,8 @@ def extract(data: bytes) -> dict[str, Any]:
         "barcodeStatus": barcode_info["barcodeStatus"],
         "barcodeType": barcode_info["barcodeType"],
         "barcodeData": barcode_info["barcodeData"],
+        "visaResult": visa_res,
+        "drivingLicenceResult": dl_res,
+        "nationalIdResult": nat_res,
+        "permitResult": permit_res,
     }

@@ -83,7 +83,14 @@ public class AiClient {
                 "UNKNOWN", "NATIONAL_ID", "NATIONAL_ID_CARD", List.of(), List.of(),
                 "UNKNOWN", false, false, false, "NOT_AVAILABLE", "NOT_AVAILABLE",
                 null, "NOT_APPLICABLE", List.of(), false, false, "NOT_AVAILABLE",
-                "NONE", null, "NOT_AVAILABLE"));
+                "NONE", null, "NOT_AVAILABLE", "UNKNOWN", 0.0,
+                new AiDtos.VisaResult(null, null, "UNKNOWN", null, null, null, null, null, null, "NOT_APPLICABLE", List.of("AI service unavailable")),
+                new AiDtos.DrivingLicenceResult(null, null, null, null, null, null, null, List.of(), "NOT_AVAILABLE", "NOT_APPLICABLE", List.of("AI service unavailable")),
+                new AiDtos.NationalIdResult(null, null, null, "UNKNOWN", null, null, null, null, null, "NOT_AVAILABLE", "NOT_AVAILABLE", "NOT_APPLICABLE", List.of("AI service unavailable")),
+                new AiDtos.PermitResult(null, null, null, null, null, null, null, null, null, null, null, "NOT_APPLICABLE", List.of("AI service unavailable"))));
+
+
+
     }
 
     private Mono<AiDtos.TamperResult> fallbackTamper(Throwable e) {

@@ -42,7 +42,13 @@ public final class AiDtos {
             @JsonProperty("barcodeStatus") String barcodeStatus,
             @JsonProperty("barcodeType") String barcodeType,
             @JsonProperty("barcodeData") Object barcodeData,
-            @JsonProperty("mrzStatus") String mrzStatus
+            @JsonProperty("mrzStatus") String mrzStatus,
+            @JsonProperty("detectedType") String detectedType,
+            @JsonProperty("detectionConfidence") Double detectionConfidence,
+            @JsonProperty("visaResult") VisaResult visaResult,
+            @JsonProperty("drivingLicenceResult") DrivingLicenceResult drivingLicenceResult,
+            @JsonProperty("nationalIdResult") NationalIdResult nationalIdResult,
+            @JsonProperty("permitResult") PermitResult permitResult
     ) {
         @JsonCreator
         public OcrResult {
@@ -86,10 +92,95 @@ public final class AiDtos {
                     null,
                     null,
                     null,
+                    null,
+                    "UNKNOWN",
+                    0.0,
+                    null,
+                    null,
+                    null,
                     null
             );
         }
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record VisaResult(
+            @JsonProperty("visaNumber") String visaNumber,
+            @JsonProperty("visaType") String visaType,
+            @JsonProperty("entryType") String entryType,
+            @JsonProperty("stayDuration") String stayDuration,
+            @JsonProperty("stayDurationValue") Integer stayDurationValue,
+            @JsonProperty("stayDurationUnit") String stayDurationUnit,
+            @JsonProperty("issueDate") String issueDate,
+            @JsonProperty("expiryDate") String expiryDate,
+            @JsonProperty("issuingCountry") String issuingCountry,
+            @JsonProperty("status") String status,
+            @JsonProperty("validationMessages") List<String> validationMessages
+    ) {
+        @JsonCreator
+        public VisaResult {}
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record DrivingLicenceResult(
+            @JsonProperty("dlNumber") String dlNumber,
+            @JsonProperty("holderName") String holderName,
+            @JsonProperty("dateOfBirth") String dateOfBirth,
+            @JsonProperty("issueDate") String issueDate,
+            @JsonProperty("expiryDate") String expiryDate,
+            @JsonProperty("state") String state,
+            @JsonProperty("issuingAuthority") String issuingAuthority,
+            @JsonProperty("vehicleClasses") List<String> vehicleClasses,
+            @JsonProperty("barcodeStatus") String barcodeStatus,
+            @JsonProperty("status") String status,
+            @JsonProperty("validationMessages") List<String> validationMessages
+    ) {
+        @JsonCreator
+        public DrivingLicenceResult {}
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record NationalIdResult(
+            @JsonProperty("idNumber") String idNumber,
+            @JsonProperty("holderName") String holderName,
+            @JsonProperty("dateOfBirth") String dateOfBirth,
+            @JsonProperty("idSubtype") String idSubtype,
+            @JsonProperty("issueDate") String issueDate,
+            @JsonProperty("expiryDate") String expiryDate,
+            @JsonProperty("address") String address,
+            @JsonProperty("gender") String gender,
+            @JsonProperty("nationality") String nationality,
+            @JsonProperty("qrStatus") String qrStatus,
+            @JsonProperty("barcodeStatus") String barcodeStatus,
+            @JsonProperty("status") String status,
+            @JsonProperty("validationMessages") List<String> validationMessages
+    ) {
+        @JsonCreator
+        public NationalIdResult {}
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PermitResult(
+            @JsonProperty("permitNumber") String permitNumber,
+            @JsonProperty("permitType") String permitType,
+            @JsonProperty("holderName") String holderName,
+            @JsonProperty("organizationName") String organizationName,
+            @JsonProperty("issueDate") String issueDate,
+            @JsonProperty("expiryDate") String expiryDate,
+            @JsonProperty("issuingAuthority") String issuingAuthority,
+            @JsonProperty("address") String address,
+            @JsonProperty("vehicleAssetIdentifier") String vehicleAssetIdentifier,
+            @JsonProperty("permitCategory") String permitCategory,
+            @JsonProperty("referenceNumber") String referenceNumber,
+            @JsonProperty("status") String status,
+            @JsonProperty("validationMessages") List<String> validationMessages
+    ) {
+        @JsonCreator
+        public PermitResult {}
+    }
+
+
+
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record PhotoForgeryResult(

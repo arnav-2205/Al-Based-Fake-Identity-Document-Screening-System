@@ -573,6 +573,31 @@ export default function VerificationDetail() {
             </div>
             <div className="flex justify-between items-start py-2.5">
               <div>
+                <span className="text-slate-400 font-medium">Auto Document-Type Detection</span>
+                <span className="text-[10px] text-slate-500 block">AI Visual &amp; Landmark Detection</span>
+              </div>
+              <div className="text-right">
+                <span className={`font-bold font-mono text-[11px] px-2 py-0.5 rounded-md ${
+                  v.detectedType && v.detectedType !== 'UNKNOWN' && v.selectedType && v.detectedType !== v.selectedType
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                }`}>
+                  {v.detectedType || 'UNKNOWN'}
+                </span>
+                {v.detectionConfidence != null && v.detectionConfidence > 0 && (
+                  <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                    Confidence: {Math.round(v.detectionConfidence * 100)}%
+                  </span>
+                )}
+                {v.selectedType && (
+                  <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                    Manual Selection: {v.selectedType}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-between items-start py-2.5">
+              <div>
                 <span className="text-slate-400 font-medium">Photo Replacement Detection</span>
                 <span className="text-[10px] text-slate-500 block">Portrait Forgery &amp; Forensic Compositing</span>
               </div>
@@ -811,6 +836,251 @@ export default function VerificationDetail() {
                 )}
               </div>
             </div>
+
+            {/* Visa Verification (P2.2) */}
+            {v.visaVerification && v.visaVerification.status !== 'NOT_APPLICABLE' && (
+              <div className="flex justify-between items-start py-2.5 border-t border-slate-800/50 mt-1">
+                <div>
+                  <span className="text-slate-400 font-medium">Visa Verification</span>
+                  <span className="text-[10px] text-slate-500 block">Entry Permitted, Visa Type &amp; Stay Duration</span>
+                </div>
+                <div className="text-right">
+                  <span className={`font-bold font-mono text-[11px] px-2 py-0.5 rounded-md ${
+                    v.visaVerification.status === 'VALID'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : v.visaVerification.status === 'INVALID'
+                      ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      : v.visaVerification.status === 'PARTIAL'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}>
+                    Status: {v.visaVerification.status}
+                  </span>
+
+                  <div className="mt-1.5 text-[10px] font-mono text-slate-300 space-y-0.5">
+                    {v.visaVerification.visaNumber && (
+                      <div><span className="text-slate-500">Visa No:</span> <span className="text-white font-bold">{v.visaVerification.visaNumber}</span></div>
+                    )}
+                    {v.visaVerification.visaType && (
+                      <div><span className="text-slate-500">Type:</span> <span className="text-blue-400 font-bold">{v.visaVerification.visaType}</span></div>
+                    )}
+                    {v.visaVerification.entryType && v.visaVerification.entryType !== 'UNKNOWN' && (
+                      <div><span className="text-slate-500">Entries:</span> <span className="text-emerald-400 font-bold">{v.visaVerification.entryType}</span></div>
+                    )}
+                    {v.visaVerification.stayDuration && (
+                      <div><span className="text-slate-500">Stay Duration:</span> <span className="text-purple-400 font-bold">{v.visaVerification.stayDuration}</span></div>
+                    )}
+                    {v.visaVerification.issueDate && (
+                      <div><span className="text-slate-500">Issue Date:</span> {v.visaVerification.issueDate}</div>
+                    )}
+                    {v.visaVerification.expiryDate && (
+                      <div><span className="text-slate-500">Expiry Date:</span> {v.visaVerification.expiryDate}</div>
+                    )}
+                  </div>
+
+                  {v.visaVerification.validationMessages && v.visaVerification.validationMessages.length > 0 && (
+                    <ul className="text-[10px] text-amber-300 font-mono mt-1 text-right space-y-0.5">
+                      {v.visaVerification.validationMessages.map((msg, idx) => (
+                        <li key={idx}>• {msg}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Driving Licence Verification (P2.3) */}
+            {v.drivingLicenceVerification && v.drivingLicenceVerification.status !== 'NOT_APPLICABLE' && (
+              <div className="flex justify-between items-start py-2.5 border-t border-slate-800/50 mt-1">
+                <div>
+                  <span className="text-slate-400 font-medium">Driving Licence Verification</span>
+                  <span className="text-[10px] text-slate-500 block">DL Number, State, Classes &amp; Validity</span>
+                </div>
+                <div className="text-right">
+                  <span className={`font-bold font-mono text-[11px] px-2 py-0.5 rounded-md ${
+                    v.drivingLicenceVerification.status === 'VALID'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : v.drivingLicenceVerification.status === 'INVALID'
+                      ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      : v.drivingLicenceVerification.status === 'PARTIAL'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}>
+                    Status: {v.drivingLicenceVerification.status}
+                  </span>
+
+                  <div className="mt-1.5 text-[10px] font-mono text-slate-300 space-y-0.5">
+                    {v.drivingLicenceVerification.dlNumber && (
+                      <div><span className="text-slate-500">DL No:</span> <span className="text-white font-bold">{v.drivingLicenceVerification.dlNumber}</span></div>
+                    )}
+                    {v.drivingLicenceVerification.holderName && (
+                      <div><span className="text-slate-500">Name:</span> <span className="text-blue-400 font-bold">{v.drivingLicenceVerification.holderName}</span></div>
+                    )}
+                    {v.drivingLicenceVerification.state && v.drivingLicenceVerification.state !== 'UNKNOWN' && (
+                      <div><span className="text-slate-500">State:</span> <span className="text-emerald-400 font-bold">{v.drivingLicenceVerification.state}</span></div>
+                    )}
+                    {v.drivingLicenceVerification.issuingAuthority && (
+                      <div><span className="text-slate-500">Authority:</span> <span className="text-slate-300">{v.drivingLicenceVerification.issuingAuthority}</span></div>
+                    )}
+                    {v.drivingLicenceVerification.vehicleClasses && v.drivingLicenceVerification.vehicleClasses.length > 0 && (
+                      <div><span className="text-slate-500">Classes:</span> <span className="text-purple-400 font-bold">{v.drivingLicenceVerification.vehicleClasses.join(', ')}</span></div>
+                    )}
+                    {v.drivingLicenceVerification.barcodeStatus && (
+                      <div><span className="text-slate-500">Barcode:</span> <span className={v.drivingLicenceVerification.barcodeStatus === 'PRESENT' ? 'text-emerald-400 font-bold' : 'text-slate-400'}>{v.drivingLicenceVerification.barcodeStatus}</span></div>
+                    )}
+                    {v.drivingLicenceVerification.issueDate && (
+                      <div><span className="text-slate-500">Issue Date:</span> {v.drivingLicenceVerification.issueDate}</div>
+                    )}
+                    {v.drivingLicenceVerification.expiryDate && (
+                      <div><span className="text-slate-500">Expiry Date:</span> {v.drivingLicenceVerification.expiryDate}</div>
+                    )}
+                  </div>
+
+                  {v.drivingLicenceVerification.validationMessages && v.drivingLicenceVerification.validationMessages.length > 0 && (
+                    <ul className="text-[10px] text-amber-300 font-mono mt-1 text-right space-y-0.5">
+                      {v.drivingLicenceVerification.validationMessages.map((msg, idx) => (
+                        <li key={idx}>• {msg}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* National ID Verification (P2.4) */}
+            {v.nationalIdVerification && v.nationalIdVerification.status !== 'NOT_APPLICABLE' && (
+              <div className="flex justify-between items-start py-2.5 border-t border-slate-800/50 mt-1">
+                <div>
+                  <span className="text-slate-400 font-medium">National ID Verification</span>
+                  <span className="text-[10px] text-slate-500 block">ID Number, Subtype, Verhoeff Checksum &amp; QR Evidence</span>
+                </div>
+                <div className="text-right">
+                  <span className={`font-bold font-mono text-[11px] px-2 py-0.5 rounded-md ${
+                    v.nationalIdVerification.status === 'VALID'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : v.nationalIdVerification.status === 'INVALID'
+                      ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      : v.nationalIdVerification.status === 'PARTIAL'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}>
+                    Status: {v.nationalIdVerification.status}
+                  </span>
+
+                  <div className="mt-1.5 text-[10px] font-mono text-slate-300 space-y-0.5">
+                    {v.nationalIdVerification.idSubtype && v.nationalIdVerification.idSubtype !== 'UNKNOWN' && (
+                      <div><span className="text-slate-500">Subtype:</span> <span className="text-purple-400 font-bold">{v.nationalIdVerification.idSubtype}</span></div>
+                    )}
+                    {v.nationalIdVerification.idNumber && (
+                      <div><span className="text-slate-500">ID No:</span> <span className="text-white font-bold">{v.nationalIdVerification.idNumber}</span></div>
+                    )}
+                    {v.nationalIdVerification.holderName && (
+                      <div><span className="text-slate-500">Name:</span> <span className="text-blue-400 font-bold">{v.nationalIdVerification.holderName}</span></div>
+                    )}
+                    {v.nationalIdVerification.dateOfBirth && (
+                      <div><span className="text-slate-500">DOB:</span> <span className="text-slate-300">{v.nationalIdVerification.dateOfBirth}</span></div>
+                    )}
+                    {v.nationalIdVerification.gender && (
+                      <div><span className="text-slate-500">Gender:</span> <span className="text-slate-300">{v.nationalIdVerification.gender}</span></div>
+                    )}
+                    {v.nationalIdVerification.nationality && (
+                      <div><span className="text-slate-500">Nationality:</span> <span className="text-emerald-400 font-bold">{v.nationalIdVerification.nationality}</span></div>
+                    )}
+                    {v.nationalIdVerification.address && (
+                      <div><span className="text-slate-500">Address:</span> <span className="text-slate-400">{v.nationalIdVerification.address}</span></div>
+                    )}
+                    {v.nationalIdVerification.qrStatus && (
+                      <div><span className="text-slate-500">QR Evidence:</span> <span className={v.nationalIdVerification.qrStatus === 'DECODED' ? 'text-emerald-400 font-bold' : 'text-slate-400'}>{v.nationalIdVerification.qrStatus}</span></div>
+                    )}
+                    {v.nationalIdVerification.barcodeStatus && (
+                      <div><span className="text-slate-500">Barcode Evidence:</span> <span className={v.nationalIdVerification.barcodeStatus === 'DECODED' ? 'text-emerald-400 font-bold' : 'text-slate-400'}>{v.nationalIdVerification.barcodeStatus}</span></div>
+                    )}
+                    {v.nationalIdVerification.issueDate && (
+                      <div><span className="text-slate-500">Issue Date:</span> {v.nationalIdVerification.issueDate}</div>
+                    )}
+                    {v.nationalIdVerification.expiryDate && (
+                      <div><span className="text-slate-500">Expiry Date:</span> {v.nationalIdVerification.expiryDate}</div>
+                    )}
+                  </div>
+
+                  {v.nationalIdVerification.validationMessages && v.nationalIdVerification.validationMessages.length > 0 && (
+                    <ul className="text-[10px] text-amber-300 font-mono mt-1 text-right space-y-0.5">
+                      {v.nationalIdVerification.validationMessages.map((msg, idx) => (
+                        <li key={idx}>• {msg}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Permit Verification (P2.5) */}
+            {v.permitVerification && v.permitVerification.status !== 'NOT_APPLICABLE' && (
+              <div className="flex justify-between items-start py-2.5 border-t border-slate-800/50 mt-1">
+                <div>
+                  <span className="text-slate-400 font-medium">Permit Verification</span>
+                  <span className="text-[10px] text-slate-500 block">Permit Number, Type, Holder/Organization &amp; Validity</span>
+                </div>
+                <div className="text-right">
+                  <span className={`font-bold font-mono text-[11px] px-2 py-0.5 rounded-md ${
+                    v.permitVerification.status === 'VALID'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : v.permitVerification.status === 'INVALID'
+                      ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      : v.permitVerification.status === 'PARTIAL'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}>
+                    Status: {v.permitVerification.status}
+                  </span>
+
+                  <div className="mt-1.5 text-[10px] font-mono text-slate-300 space-y-0.5">
+                    {v.permitVerification.permitNumber && (
+                      <div><span className="text-slate-500">Permit No:</span> <span className="text-white font-bold">{v.permitVerification.permitNumber}</span></div>
+                    )}
+                    {v.permitVerification.permitType && (
+                      <div><span className="text-slate-500">Permit Type:</span> <span className="text-blue-400 font-bold">{v.permitVerification.permitType}</span></div>
+                    )}
+                    {v.permitVerification.holderName && (
+                      <div><span className="text-slate-500">Holder:</span> <span className="text-emerald-400 font-bold">{v.permitVerification.holderName}</span></div>
+                    )}
+                    {v.permitVerification.organizationName && (
+                      <div><span className="text-slate-500">Organization:</span> <span className="text-purple-400 font-bold">{v.permitVerification.organizationName}</span></div>
+                    )}
+                    {v.permitVerification.issueDate && (
+                      <div><span className="text-slate-500">Issue Date:</span> {v.permitVerification.issueDate}</div>
+                    )}
+                    {v.permitVerification.expiryDate && (
+                      <div><span className="text-slate-500">Expiry Date:</span> {v.permitVerification.expiryDate}</div>
+                    )}
+                    {v.permitVerification.issuingAuthority && (
+                      <div><span className="text-slate-500">Issuing Authority:</span> <span className="text-slate-300">{v.permitVerification.issuingAuthority}</span></div>
+                    )}
+                    {v.permitVerification.permitCategory && (
+                      <div><span className="text-slate-500">Category:</span> <span className="text-slate-400">{v.permitVerification.permitCategory}</span></div>
+                    )}
+                    {v.permitVerification.referenceNumber && (
+                      <div><span className="text-slate-500">Reference No:</span> <span className="text-slate-400">{v.permitVerification.referenceNumber}</span></div>
+                    )}
+                    {v.permitVerification.vehicleAssetIdentifier && (
+                      <div><span className="text-slate-500">Vehicle/Asset ID:</span> <span className="text-slate-400">{v.permitVerification.vehicleAssetIdentifier}</span></div>
+                    )}
+                    {v.permitVerification.address && (
+                      <div><span className="text-slate-500">Address:</span> <span className="text-slate-400">{v.permitVerification.address}</span></div>
+                    )}
+                  </div>
+
+                  {v.permitVerification.validationMessages && v.permitVerification.validationMessages.length > 0 && (
+                    <ul className="text-[10px] text-amber-300 font-mono mt-1 text-right space-y-0.5">
+                      {v.permitVerification.validationMessages.map((msg, idx) => (
+                        <li key={idx}>• {msg}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
         </section>
 

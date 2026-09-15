@@ -34,6 +34,70 @@ public final class VerificationDtos {
             String source
     ) {}
 
+    public record VisaVerificationView(
+            String visaNumber,
+            String visaType,
+            String entryType,
+            String stayDuration,
+            Integer stayDurationValue,
+            String stayDurationUnit,
+            String issueDate,
+            String expiryDate,
+            String issuingCountry,
+            String status,
+            List<String> validationMessages
+    ) {}
+
+    public record DrivingLicenceVerificationView(
+            String dlNumber,
+            String holderName,
+            String dateOfBirth,
+            String issueDate,
+            String expiryDate,
+            String state,
+            String issuingAuthority,
+            List<String> vehicleClasses,
+            String barcodeStatus,
+            String status,
+            List<String> validationMessages
+    ) {}
+
+    public record NationalIdVerificationView(
+            String idNumber,
+            String holderName,
+            String dateOfBirth,
+            String idSubtype,
+            String issueDate,
+            String expiryDate,
+            String address,
+            String gender,
+            String nationality,
+            String qrStatus,
+            String barcodeStatus,
+            String status,
+            List<String> validationMessages
+    ) {}
+
+    public record PermitVerificationView(
+            String permitNumber,
+            String permitType,
+            String holderName,
+            String organizationName,
+            String issueDate,
+            String expiryDate,
+            String issuingAuthority,
+            String address,
+            String vehicleAssetIdentifier,
+            String permitCategory,
+            String referenceNumber,
+            String status,
+            List<String> validationMessages
+    ) {}
+
+
+
+
+
     public record CandidateStampRegionView(
             List<Integer> bbox,
             Double inkRatio,
@@ -81,6 +145,9 @@ public final class VerificationDtos {
             Long verificationId,
             Long documentId,
             String documentType,
+            String selectedType,
+            String detectedType,
+            Double detectionConfidence,
             ExtractedView extracted,
             String ocrStatus,
             String validationStatus,
@@ -104,6 +171,10 @@ public final class VerificationDtos {
             MetadataAnalysisView metadataAnalysis,
             VizMrzCrossValidationView vizMrzCrossValidation,
             ExpiryValidationView expiryValidation,
+            VisaVerificationView visaVerification,
+            DrivingLicenceVerificationView drivingLicenceVerification,
+            NationalIdVerificationView nationalIdVerification,
+            PermitVerificationView permitVerification,
             RiskAssessmentView riskAssessment,
             String elaHeatmapBase64,
             Double faceMatchScore,
