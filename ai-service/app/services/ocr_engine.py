@@ -92,8 +92,8 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
 
         img = Image.open(io.BytesIO(data)).convert("RGB")
         max_dim = max(img.width, img.height)
-        if max_dim > 1600:
-            scale = 1600.0 / max_dim
+        if max_dim > 1200:
+            scale = 1200.0 / max_dim
             new_size = (int(img.width * scale), int(img.height * scale))
             img = img.resize(new_size, Image.Resampling.LANCZOS)
         elif max_dim < 450:
@@ -118,12 +118,23 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
                 landmarks = (
                     "PASSPORT", "PASSEPORT", "REPUBLIC", "GOVERNMENT", "INDIA", "DRIVING",
                     "LICENCE", "LICENSE", "MAHARASHTRA", "TRANSPORT", "UNION", "NATIONAL",
-                    "IDENTITY", "CARD", "ELECTION", "COMMISSION", "INCOME TAX", "AADHAAR",
+                    "IDENTITY", "CARD", "ELECTION", "COMMISSION", "INCOME TAX", "PAN", "AADHAAR",
                     "SURNAME", "GIVEN", "DATE OF BIRTH", "DOB", "SEX", "VALIDITY", "EXPIRY",
                     "HOLDER", "SIGNATURE", "P<", "I<", "A<", "NAME:", "ISSUE", "PERSONALAUSWEIS",
-                    "DEUTSCHLAND", "BUNDESREPUBLIK", "CARTE", "NATIONALE"
+                    "DEUTSCHLAND", "BUNDESREPUBLIK", "CARTE", "NATIONALE", "MUMBAI", "DELHI",
+                    "STATE", "AUTHORITY", "DEPARTMENT", "INDIAN", "REPUBLIQUE", "FRANCAISE"
                 )
                 landmark_hits = sum(1 for lm in landmarks if lm in joined)
+                joined_clean = joined.replace(" ", "")
+                if re.search(r"[A-Z0-9]{1,5}<[A-Z0-9<]{8,}", joined_clean) or re.search(r"[A-Z0-9<]{25,44}", joined_clean):
+                    landmark_hits += 2
+                if re.search(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b", joined) or re.search(r"\b\d{2}[-/]\d{2}[-/]\d{4}\b", joined):
+                    landmark_hits += 1
+                if re.search(r"\b[A-Z0-9-]{6,20}\b", joined) and len(texts) >= 4:
+                    landmark_hits += 1
+
+
+
                 score = sum(len(t) for _, t, c in res if len(t) >= 4 and c >= 0.4)
                 return landmark_hits, score
 
@@ -143,6 +154,7 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
                         if rot_hits >= 2:
                             break
                 result = best_res
+
 
             confidences: list[float] = []
             for (box, text, conf) in result:
@@ -774,7 +786,7 @@ class GenericNationalIDAdapter:
                     if len(cand_val) >= 3 and not any(k in cand_val for k in self.NOISE_KEYWORDS):
                         return cand_val, max(0.85, c["confidence"]), "Spatial Bounding Box Match"
 
-        # Path C: Layout Candidate Ranking (For documents without 'Name:' label, e.g. Aadhaar)
+        # Path C: Layout Candidate Ranking (For documents without 'Name:' label, e.g. Aadhaar / Generic ID)
         anchor_idx = -1
         for i, line in enumerate(lines):
             if re.search(r"\b(DOB|YEAR OF BIRTH|YOB|DATE OF BIRTH|MALE|FEMALE|SON OF|DAUGHTER OF|WIFE OF|S/O|D/O|W/O)\b", line, re.I):
@@ -782,7 +794,7 @@ class GenericNationalIDAdapter:
                 break
 
         candidates: list[tuple[str, float, float]] = []
-        search_lines = lines[:anchor_idx] if anchor_idx > 0 else lines[:6]
+        search_lines = lines[:anchor_idx] if anchor_idx > 0 else lines
 
         for line_str in search_lines:
             cand = line_str.strip()
@@ -841,14 +853,23 @@ class GenericNationalIDAdapter:
         if voter_m:
             return voter_m.group(1), 0.95
 
-        doc_m = re.search(
-            r"(?:DOCUMENT\s*NO?|ID\s*NO?|IDENTIFICATION\s*NO?|CARD\s*NO?|PASSPORT\s*NO?|LICENCE\s*NO?|LICENSE\s*NO?|SERIAL\s*NO?)\s*[:\s|-]+\s*([A-Z0-9\s-]{5,20})",
-            upper,
-        )
-        if doc_m:
-            val = doc_m.group(1).strip().replace(" ", "")
-            if not any(k in val for k in self.NOISE_KEYWORDS):
-                return val, 0.90
+        for l in lines:
+            up_l = l.strip().upper()
+            doc_m = re.search(
+                r"(?:DOCUMENT|ID|IDENTIFICATION|CARD|PASSPORT|LICENCE|LICENSE|SERIAL)\s*(?:NO?|NA?|NUM|NUMBER)?\s*[:\s|-]+\s*([A-Z0-9 -]{4,25})",
+                up_l,
+            )
+            if doc_m:
+                val = doc_m.group(1).strip().replace(" ", "")
+                if len(val) >= 4 and not any(k in val for k in self.NOISE_KEYWORDS):
+                    return val, 0.90
+
+        for l in lines:
+            cleaned_l = l.strip().upper()
+            if any(k in cleaned_l for k in self.NOISE_KEYWORDS) or len(cleaned_l) < 5 or len(cleaned_l) > 20:
+                continue
+            if re.match(r"^[A-Z0-9-]{5,20}$", cleaned_l) and sum(1 for c in cleaned_l if c.isdigit()) >= 3 and not re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", cleaned_l):
+                return cleaned_l, 0.85
 
         return "", 0.0
 
@@ -857,11 +878,12 @@ class GenericNationalIDAdapter:
     ) -> tuple[str, float]:
         m = re.search(
             r"(?:DOB|DATE\s*OF\s*BIRTH|YEAR\s*OF\s*BIRTH|BIRTH\s*YEAR|YOB|BIRTH|BORN|NAISSANCE|GEBURTSDATUM|FECHA\s*DE\s*NACIMIENTO)\s*[:\s|/]*"
-            r"(\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|\d{1,4}[-/]\d{1,2}[-/]\d{2,4}|\b\d{4}\b)",
+            r"(\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|\d{1,4}[-/,\s]\d{1,2}[-/,\s]\d{2,4}|\b\d{4}\b)",
             upper,
         )
         if m:
-            norm = _normalize_date(m.group(1))
+            raw_d = m.group(1).replace(",", "/").replace(" ", "-")
+            norm = _normalize_date(raw_d)
             if norm:
                 return norm, 0.92
 
@@ -872,6 +894,14 @@ class GenericNationalIDAdapter:
                     norm = _normalize_date(d_m.group(1))
                     if norm:
                         return norm, 0.88
+
+        for l in lines:
+            d_m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b", l)
+            if d_m:
+                norm = _normalize_date(d_m.group(1))
+                if norm and not norm.startswith("202"):
+                    return norm, 0.82
+
         return "", 0.0
 
     def _extract_gender(
@@ -890,6 +920,12 @@ class GenericNationalIDAdapter:
             return "M", 0.85
         if re.search(r"\b(?:Daughter|Wife)\s*(?:of)?\b", upper, re.I):
             return "F", 0.85
+
+        for l in lines:
+            up_l = l.strip().upper()
+            if up_l in ("M", "F", "SEX: M", "SEX: F", "GENDER: M", "GENDER: F"):
+                return ("M" if "M" in up_l else "F"), 0.85
+
         return "", 0.0
 
     def _extract_nationality(self, upper: str, country: str) -> tuple[str, float]:
@@ -924,8 +960,28 @@ class GenericNationalIDAdapter:
     def _extract_expiry_date(
         self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
     ) -> tuple[str, float]:
+        # 1. Line-by-line targeted scan for EXPIRY/VALIDITY keywords
+        candidate = ""
+        for i, line in enumerate(lines):
+            up_line = line.strip().upper()
+            if any(kw in up_line for kw in ("EXPIRY", "EXPIRES", "VALID UNTIL", "VALIDITY", "ABLAUFDATUM", "CADUCIDAD", "EXPIRATION", "DEXPIRA")):
+                block = " ".join([lines[j].strip() for j in range(i, min(i + 8, len(lines)))])
+                d_matches = re.findall(r"\b(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4})\b", block)
+                for dm in d_matches:
+                    clean_dm = dm.strip().replace(" ", "-")
+                    norm = _normalize_date(clean_dm)
+                    if norm:
+                        if int(norm[:4]) >= 2025:
+                            return norm, 0.92
+                        if not candidate:
+                            candidate = norm
+
+        if candidate:
+            return candidate, 0.88
+
+        # 2. Strict regex search fallback with explicit non-issue-date constraint
         m = re.search(
-            r"(?:EXPIRY|EXPIRES|VALID\s*UNTIL|VALIDITY|ABLAUFDATUM|CADUCIDAD|EXPIRATION|DEXPIRA)\b[\s\S]{0,80}?(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4}[A-Za-z]?)",
+            r"(?:EXPIRY|EXPIRES|VALID\s*UNTIL|VALIDITY|ABLAUFDATUM|CADUCIDAD|EXPIRATION|DEXPIRA)\b[^\n\d]{0,30}(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4}[A-Za-z]?)",
             upper,
         )
         if m:

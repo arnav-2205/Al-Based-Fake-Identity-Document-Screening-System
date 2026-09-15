@@ -33,4 +33,15 @@ public class FaceEmbedding {
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Long getVerificationId() { return verificationId; }
+    public void setVerificationId(Long verificationId) { this.verificationId = verificationId; }
+    public String getDocumentNumber() { return documentNumber; }
+    public void setDocumentNumber(String documentNumber) { this.documentNumber = documentNumber; }
+    public List<Double> getEmbedding() { return embedding; }
+    public void setEmbedding(List<Double> embedding) { this.embedding = embedding; }
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

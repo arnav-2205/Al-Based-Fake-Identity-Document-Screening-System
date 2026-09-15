@@ -55,4 +55,31 @@ public class ExtractedData {
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Long getDocumentId() { return documentId; }
+    public void setDocumentId(Long documentId) { this.documentId = documentId; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getPassportNumber() { return passportNumber; }
+    public void setPassportNumber(String passportNumber) { this.passportNumber = passportNumber; }
+    public String getNationality() { return nationality; }
+    public void setNationality(String nationality) { this.nationality = nationality; }
+    public LocalDate getDateOfBirth() { return dateOfBirth; }
+    public void setDateOfBirth(LocalDate dateOfBirth) { this.dateOfBirth = dateOfBirth; }
+    public String getGender() { return gender; }
+    public void setGender(String gender) { this.gender = gender; }
+    public LocalDate getIssueDate() { return issueDate; }
+    public void setIssueDate(LocalDate issueDate) { this.issueDate = issueDate; }
+    public LocalDate getExpiryDate() { return expiryDate; }
+    public void setExpiryDate(LocalDate expiryDate) { this.expiryDate = expiryDate; }
+    public String getMrzData() { return mrzData; }
+    public void setMrzData(String mrzData) { this.mrzData = mrzData; }
+    public Map<String, Object> getVisualZone() { return visualZone; }
+    public void setVisualZone(Map<String, Object> visualZone) { this.visualZone = visualZone; }
+    public Double getOcrConfidence() { return ocrConfidence; }
+    public void setOcrConfidence(Double ocrConfidence) { this.ocrConfidence = ocrConfidence; }
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

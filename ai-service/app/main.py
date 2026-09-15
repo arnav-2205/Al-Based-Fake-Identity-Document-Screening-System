@@ -23,7 +23,23 @@ app.include_router(face.router)
 app.include_router(screening.router)
 
 
+@app.on_event("startup")
+def startup_event():
+    try:
+        import torch
+        torch.set_num_threads(min(4, torch.get_num_threads()))
+    except Exception as e:
+        print(f"[Startup] torch.set_num_threads note: {e}")
+
+    try:
+        from app.services import face_engine, tamper_model
+        face_engine._get_engines()
+        tamper_model._get_engine()
+        print("[Startup] Pre-warmed face and tamper inference engines.")
+    except Exception as e:
+        print(f"[Startup] Engine pre-warm note: {e}")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "useRealModels": settings.use_real_models}
-

@@ -7,6 +7,6 @@ router = APIRouter(prefix="/ocr", tags=["ocr"])
 
 
 @router.post("/extract", response_model=OcrResult)
-async def extract(file: UploadFile = File(...)) -> OcrResult:
-    data = await file.read()
+def extract(file: UploadFile = File(...)) -> OcrResult:
+    data = file.file.read()
     return OcrResult(**ocr_engine.extract(data))

@@ -43,6 +43,11 @@ public class DocumentService {
         return documents.findById(id).orElseThrow(() -> ApiException.notFound("Document " + id));
     }
 
+    public Document save(Document doc) {
+        return documents.save(doc);
+    }
+
+
     private String extension(String name) {
         if (name == null) return "";
         int i = name.lastIndexOf('.');

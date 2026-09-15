@@ -70,11 +70,16 @@ public class VerificationService {
         extracted = extractedRepo.save(extracted);
         if (doc.getDocumentNumber() == null && extracted.getPassportNumber() != null) {
             doc.setDocumentNumber(extracted.getPassportNumber());
+            documentService.save(doc);
         }
-        if (ai.ocr() != null && ai.ocr().visualZone() != null && ai.ocr().visualZone().get("detectedDocumentType") != null) {
-            String detectedType = String.valueOf(ai.ocr().visualZone().get("detectedDocumentType"));
-            if (!"UNKNOWN".equalsIgnoreCase(detectedType) && ("PASSPORT".equalsIgnoreCase(doc.getDocumentType()) || "NATIONAL_ID".equalsIgnoreCase(doc.getDocumentType()))) {
+        if (ai.ocr() != null) {
+            String detectedType = ai.ocr().documentSubtype() != null ? ai.ocr().documentSubtype()
+                    : (ai.ocr().detectedDocumentType() != null ? ai.ocr().detectedDocumentType()
+                    : (ai.ocr().visualZone() != null && ai.ocr().visualZone().get("detectedDocumentType") != null
+                    ? String.valueOf(ai.ocr().visualZone().get("detectedDocumentType")) : null));
+            if (detectedType != null && !"UNKNOWN".equalsIgnoreCase(detectedType)) {
                 doc.setDocumentType(detectedType);
+                documentService.save(doc);
             }
         }
 
@@ -85,9 +90,6 @@ public class VerificationService {
         BlacklistService.Hit blacklist = blacklistService.check(
                 extracted.getPassportNumber(), extracted.getName(), extracted.getDateOfBirth());
 
-        // ---- 8. multi-identity check --------------------------------
-        MultiIdentity multi = checkMultiIdentity(ai.face(), doc.getDocumentNumber());
-
         // ---- tamper composite ------------------------------------
         double tamperComposite = compositeTamper(ai.tamper());
 
@@ -95,6 +97,11 @@ public class VerificationService {
                 && ai.face() != null && ai.face().faceMatchScore() != null
                 && !"UNKNOWN".equalsIgnoreCase(String.valueOf(ai.face().faceMatchStatus()));
         boolean livenessFailed = ai.face() != null && "SPOOF".equalsIgnoreCase(String.valueOf(ai.face().livenessStatus()));
+
+        // ---- 8. multi-identity check (only performed when live face photo supplied) ----
+        MultiIdentity multi = facePerformed
+                ? checkMultiIdentity(ai.face(), extracted, doc.getId())
+                : new MultiIdentity(false, "NO_LIVE_FACE_SUPPLIED", null, 0.0);
 
         // ---- 9. risk scoring -----------------------------------
         RiskEngine.Result risk = riskEngine.score(new RiskEngine.Input(
@@ -149,8 +156,8 @@ public class VerificationService {
             heatmaps.put(vr.getId(), ai.tamper().elaHeatmapBase64());
         }
 
-        // ---- store face embedding for future correlation -----------
-        if (ai.face() != null && ai.face().embedding() != null && !ai.face().embedding().isEmpty()) {
+        // ---- store face embedding for future correlation (only when live face supplied) -----------
+        if (facePerformed && ai.face() != null && ai.face().embedding() != null && !ai.face().embedding().isEmpty()) {
             FaceEmbedding fe = new FaceEmbedding();
             fe.setVerificationId(vr.getId());
             fe.setDocumentNumber(doc.getDocumentNumber());
@@ -265,26 +272,99 @@ public class VerificationService {
 
     private record MultiIdentity(boolean flagged, String detail, String matchedDocNumber, double similarity) {}
 
-    private MultiIdentity checkMultiIdentity(AiDtos.FaceResult face, String currentDocNumber) {
+    private MultiIdentity checkMultiIdentity(AiDtos.FaceResult face, ExtractedData currentExtracted, Long currentDocId) {
         if (face == null || face.embedding() == null || face.embedding().isEmpty()) {
             return new MultiIdentity(false, "NO_EMBEDDING", null, 0.0);
         }
-        String normCurrent = normalizeDocNum(currentDocNumber);
-        double threshold = 0.62; // ArcFace cosine similarity threshold
+
+        String currentDocNum = currentExtracted != null ? currentExtracted.getPassportNumber() : null;
+        String currentName = currentExtracted != null ? normalizeName(currentExtracted.getName()) : null;
+        LocalDate currentDob = currentExtracted != null ? currentExtracted.getDateOfBirth() : null;
+        String normCurrentDocNum = normalizeDocNum(currentDocNum);
+
+        double threshold = 0.62; // ArcFace cosine similarity decision threshold
+
         for (FaceEmbedding stored : embeddingRepo.findAll()) {
-            String normStored = normalizeDocNum(stored.getDocumentNumber());
-            // Ignore missing/unparsed document numbers or re-scans of the EXACT same document number
-            if (normStored == null || (normCurrent != null && normStored.equalsIgnoreCase(normCurrent))) {
+            boolean skipCurrentDocument = false;
+            // Skip embeddings belonging to the current document run
+            if (stored.getVerificationId() != null) {
+                Optional<VerificationResult> storedVr = verificationRepo.findById(stored.getVerificationId());
+                if (storedVr.isPresent() && currentDocId != null && currentDocId.equals(storedVr.get().getDocumentId())) {
+                    skipCurrentDocument = true;
+                    continue;
+                }
+            }
+
+            String normStoredDocNum = normalizeDocNum(stored.getDocumentNumber());
+            boolean skipSameDocumentNumber = false;
+            // Skip exact document number matches (re-scan of the same document)
+            if (normCurrentDocNum != null && normStoredDocNum != null && normCurrentDocNum.equalsIgnoreCase(normStoredDocNum)) {
+                skipSameDocumentNumber = true;
                 continue;
             }
+
             double sim = FaceMath.cosineSimilarity(face.embedding(), stored.getEmbedding());
             if (sim >= threshold) {
-                return new MultiIdentity(true, String.format(
-                        "Potential Multiple-Identity Match: Face matches stored embedding for document %s (cosine %.2f)",
-                        stored.getDocumentNumber(), sim), stored.getDocumentNumber(), sim);
+                // Identity correlation audit: Check if stored record belongs to the SAME person vs a DIFFERENT identity
+                boolean samePerson = false;
+                boolean sameName = false;
+                boolean dobConflict = false;
+                String storedName = null;
+                LocalDate storedDob = null;
+                Long storedDocId = null;
+
+                if (stored.getVerificationId() != null) {
+                    Optional<VerificationResult> storedVr = verificationRepo.findById(stored.getVerificationId());
+                    if (storedVr.isPresent()) {
+                        storedDocId = storedVr.get().getDocumentId();
+                        Optional<ExtractedData> storedExt = extractedRepo.findByDocumentId(storedDocId);
+                        if (storedExt.isPresent()) {
+                            ExtractedData ext = storedExt.get();
+                            storedName = normalizeName(ext.getName());
+                            storedDob = ext.getDateOfBirth();
+
+                            sameName = currentName != null && storedName != null && isSameName(currentName, storedName);
+                            dobConflict = currentDob != null && storedDob != null && !currentDob.equals(storedDob);
+
+                            // Strict identity matching: Same person iff names match AND DOBs do not conflict
+                            if (sameName && !dobConflict) {
+                                samePerson = true;
+                            }
+                        }
+                    }
+                }
+
+                log.info("[MultiIdentityAudit] curDocId={} curDocNum={} curName={} curDob={} | storedVrId={} storedDocId={} storedDocNum={} storedName={} storedDob={} | sim={:.4f} sameName={} dobConflict={} samePerson={}",
+                        currentDocId, currentDocNum, currentName, currentDob, stored.getVerificationId(), storedDocId, stored.getDocumentNumber(), storedName, storedDob, sim, sameName, dobConflict, samePerson);
+
+                if (!samePerson) {
+                    String matchedDoc = stored.getDocumentNumber() != null ? stored.getDocumentNumber() : "ID#" + stored.getVerificationId();
+                    return new MultiIdentity(true, String.format(
+                            "CRITICAL SECURITY ALARM: Hard Rejection Override — Multiple-Identity Fraud (Face matches stored embedding for document %s, cosine %.2f)",
+                            matchedDoc, sim), matchedDoc, sim);
+                }
             }
         }
         return new MultiIdentity(false, "CLEAR", null, 0.0);
+    }
+
+    private static String normalizeName(String name) {
+        if (name == null) return null;
+        String s = name.trim().toUpperCase().replaceAll("[^A-Z ]", "").replaceAll("\\s+", " ");
+        return s.isBlank() ? null : s;
+    }
+
+    private static boolean isSameName(String n1, String n2) {
+        if (n1 == null || n2 == null) return false;
+        if (n1.equalsIgnoreCase(n2)) return true;
+        String[] parts1 = n1.split(" ");
+        String[] parts2 = n2.split(" ");
+        if (parts1.length >= 2 && parts2.length >= 2) {
+            if (parts1[0].equalsIgnoreCase(parts2[0]) && parts1[parts1.length - 1].equalsIgnoreCase(parts2[parts2.length - 1])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String normalizeDocNum(String docNum) {
@@ -295,6 +375,7 @@ public class VerificationService {
         }
         return s;
     }
+
 
     private double compositeTamper(AiDtos.TamperResult t) {
         if (t == null) return 0.0;

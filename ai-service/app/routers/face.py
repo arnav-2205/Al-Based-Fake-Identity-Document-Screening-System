@@ -7,10 +7,10 @@ router = APIRouter(prefix="/face", tags=["face"])
 
 
 @router.post("/verify", response_model=FaceResult)
-async def verify(
+def verify(
     doc_photo: UploadFile = File(...),
     live_photo: UploadFile | None = File(None),
 ) -> FaceResult:
-    doc = await doc_photo.read()
-    live = await live_photo.read() if live_photo is not None else None
+    doc = doc_photo.file.read()
+    live = live_photo.file.read() if live_photo is not None else None
     return FaceResult(**face_engine.verify(doc, live))

@@ -32,11 +32,20 @@ public class ValidationEngine {
         boolean expired = false;
         boolean crossZoneMismatch = false;
 
-        String docType = data.getVisualZone() != null && data.getVisualZone().get("detectedDocumentType") != null
-                ? String.valueOf(data.getVisualZone().get("detectedDocumentType"))
-                : "PASSPORT";
+        String cat = ocr != null && ocr.documentCategory() != null ? ocr.documentCategory()
+                : (data.getVisualZone() != null && data.getVisualZone().get("documentCategory") != null ? String.valueOf(data.getVisualZone().get("documentCategory")) : null);
+        String sub = ocr != null && ocr.documentSubtype() != null ? ocr.documentSubtype()
+                : (data.getVisualZone() != null && data.getVisualZone().get("documentSubtype") != null ? String.valueOf(data.getVisualZone().get("documentSubtype")) : null);
+        String detectedType = ocr != null && ocr.detectedDocumentType() != null ? ocr.detectedDocumentType()
+                : (data.getVisualZone() != null && data.getVisualZone().get("detectedDocumentType") != null ? String.valueOf(data.getVisualZone().get("detectedDocumentType")) : null);
 
-        boolean isPassport = "PASSPORT".equalsIgnoreCase(docType);
+        boolean hasClassification = (cat != null && !"UNKNOWN".equalsIgnoreCase(cat))
+                || (sub != null && !"UNKNOWN".equalsIgnoreCase(sub))
+                || (detectedType != null && !"UNKNOWN".equalsIgnoreCase(detectedType));
+
+        String docType = sub != null ? sub : (detectedType != null ? detectedType : (cat != null ? cat : "UNKNOWN"));
+        boolean isPassport = "PASSPORT".equalsIgnoreCase(cat) || "PASSPORT".equalsIgnoreCase(sub) || "PASSPORT".equalsIgnoreCase(detectedType);
+        boolean hasMrzData = data.getMrzData() != null && !data.getMrzData().isBlank();
 
         if (isPassport) {
             // --- 1. Passport ICAO 9303 MRZ Checkdigits ----------------------
@@ -54,15 +63,33 @@ public class ValidationEngine {
                 crossZoneMismatch |= mismatch("date of birth", str(m.dateOfBirth()), str(data.getDateOfBirth()), reasons);
                 crossZoneMismatch |= mismatch("expiry date", str(m.expiryDate()), str(data.getExpiryDate()), reasons);
                 crossZoneMismatch |= mismatch("surname", m.surname(), surnameOf(data.getName()), reasons);
-            } else if (data.getMrzData() != null && !data.getMrzData().isBlank()) {
-                reasons.add("MRZ present but could not be parsed as ICAO TD3");
+            } else if (hasMrzData) {
+                reasons.add("Passport MRZ present but unparseable or corrupted");
+                mrzChecksumFailed = true;
             } else {
                 reasons.add("Passport MRZ missing or unreadable");
                 mrzChecksumFailed = true;
             }
-        } else {
-            // --- 2. National ID Verification Pipeline (QR + Visual OCR) ------
-            reasons.add("National ID document type detected: " + docType);
+        } else if (hasClassification) {
+            // --- 2. Known Non-Passport Documents (National ID, Driving Licence, Aadhaar, PAN, Visa, etc.) ------
+            reasons.add("Document classification active: " + docType);
+            if (hasMrzData) {
+                Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
+                if (mrz.isPresent()) {
+                    Mrz.Parsed m = mrz.get();
+                    if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (document number)"); }
+                    if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (date of birth)"); }
+                    if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (expiry date)"); }
+                    if (!m.finalCheckValid())     { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (composite)"); }
+                    if (m.allChecksValid())       reasons.add("MRZ check digits: all valid");
+                } else {
+                    reasons.add("MRZ present on " + docType + " but unparseable or corrupted");
+                    mrzChecksumFailed = true;
+                }
+            } else {
+                reasons.add("MRZ check digits: NOT_APPLICABLE (" + docType + ")");
+            }
+
             boolean qrDetected = ocr != null && Boolean.TRUE.equals(ocr.qrDetected());
             boolean qrDecoded = ocr != null && Boolean.TRUE.equals(ocr.qrDecoded());
             boolean qrSigVerified = ocr != null && Boolean.TRUE.equals(ocr.qrSignatureVerified());
@@ -78,6 +105,25 @@ public class ValidationEngine {
                 }
             } else {
                 reasons.add("No QR Code detected on National ID document (Visual OCR audit performed)");
+            }
+        } else {
+            // --- 3. Unclassified / Unknown Document Type -------------------
+            reasons.add("Document type UNKNOWN / UNCLASSIFIED");
+            if (hasMrzData) {
+                Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
+                if (mrz.isPresent()) {
+                    Mrz.Parsed m = mrz.get();
+                    if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (document number)"); }
+                    if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (date of birth)"); }
+                    if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (expiry date)"); }
+                    if (!m.finalCheckValid())     { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (composite)"); }
+                    if (m.allChecksValid())       reasons.add("MRZ check digits: all valid");
+                } else {
+                    reasons.add("MRZ present on UNKNOWN document but unparseable or corrupted");
+                    mrzChecksumFailed = true;
+                }
+            } else {
+                reasons.add("Document type unclassified — MRZ absent, defaulting to Visual Zone inspection");
             }
         }
 
