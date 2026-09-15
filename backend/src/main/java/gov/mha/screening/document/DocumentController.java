@@ -43,7 +43,8 @@ public class DocumentController {
                     "UNKNOWN", "NATIONAL_ID", "NATIONAL_ID_CARD", List.of(), List.of(),
                     "UNKNOWN", false, false, false, "NOT_AVAILABLE", "NOT_AVAILABLE",
                     null, "NOT_APPLICABLE", List.of(), false, false, "NOT_AVAILABLE",
-                    "NONE", null, "NOT_AVAILABLE");
+                    "NONE", null, "NOT_AVAILABLE", "UNKNOWN", 0.0,
+                    null, null, null, null);
         }
         try {
             return aiClient.extractOcr(file.getBytes());
@@ -54,7 +55,8 @@ public class DocumentController {
                     "UNKNOWN", "NATIONAL_ID", "NATIONAL_ID_CARD", List.of(), List.of(),
                     "UNKNOWN", false, false, false, "NOT_AVAILABLE", "NOT_AVAILABLE",
                     null, "NOT_APPLICABLE", List.of(), false, false, "NOT_AVAILABLE",
-                    "NONE", null, "NOT_AVAILABLE");
+                    "NONE", null, "NOT_AVAILABLE", "UNKNOWN", 0.0,
+                    null, null, null, null);
         }
     }
 }
