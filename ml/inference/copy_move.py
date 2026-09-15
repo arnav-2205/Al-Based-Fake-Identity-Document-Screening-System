@@ -72,7 +72,7 @@ def detect_copy_move(
 
 def detect_font_inconsistency(
     image_bgr: np.ndarray,
-    text_band: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 0.85),
+    text_band: tuple[float, float, float, float] = (0.0, 0.10, 1.0, 0.85),
 ) -> tuple[float, dict]:
     h, w = image_bgr.shape[:2]
     x0, y0, x1, y1 = text_band
@@ -86,24 +86,55 @@ def detect_font_inconsistency(
     mser.setMaxArea(2000)
     regions, _ = mser.detectRegions(gray)
 
-    heights = [
-        bh
-        for pts in regions
-        for (_x, _y, bw, bh) in [cv2.boundingRect(pts)]
-        if 6 <= bh <= 60 and 2 <= bw <= 60 and bw < bh * 3
-    ]
+    boxes = []
+    for pts in regions:
+        bx, by, bw, bh = cv2.boundingRect(pts)
+        if 8 <= bh <= 60 and 4 <= bw <= 60 and bw < bh * 2.5:
+            boxes.append((bx, by, bw, bh))
 
-    if len(heights) < 12:
-        return 0.0, {"glyphCount": len(heights)}
+    if len(boxes) < 15:
+        return 0.0, {"glyphCount": len(boxes)}
 
-    heights_arr = np.array(heights, dtype=np.float32)
-    median_h = float(np.median(heights_arr))
-    mad = float(np.median(np.abs(heights_arr - median_h))) or 1.0
-    outlier_fraction = float((np.abs(heights_arr - median_h) > mad * 4).mean())
+    # Group glyphs into text lines by vertical center
+    boxes.sort(key=lambda b: (b[1] + b[3] / 2))
+    lines = []
+    current_line = []
+    current_cy = None
 
-    score = float(np.clip(outlier_fraction * 3.0, 0.0, 1.0))
+    for b in boxes:
+        cy = b[1] + b[3] / 2
+        if current_cy is None or abs(cy - current_cy) < (b[3] * 0.6 + 4):
+            current_line.append(b)
+            current_cy = cy if current_cy is None else (current_cy * 0.7 + cy * 0.3)
+        else:
+            if len(current_line) >= 5:
+                lines.append(current_line)
+            current_line = [b]
+            current_cy = cy
+
+    if len(current_line) >= 5:
+        lines.append(current_line)
+
+    if not lines:
+        return 0.0, {"glyphCount": len(boxes), "lineCount": 0}
+
+    line_scores = []
+    for line in lines:
+        heights = np.array([b[3] for b in line], dtype=np.float32)
+        med_h = float(np.median(heights))
+        mad = float(np.median(np.abs(heights - med_h))) or 1.0
+        outliers = float((np.abs(heights - med_h) > mad * 4.0).mean())
+        if outliers >= 0.25:
+            line_scores.append(outliers)
+
+    if not line_scores:
+        return 0.0, {"glyphCount": len(boxes), "lineCount": len(lines), "maxLineInconsistency": 0.0}
+
+    max_line_inconsistency = max(line_scores)
+    score = float(np.clip((max_line_inconsistency - 0.25) * 3.0, 0.0, 1.0))
+
     return score, {
-        "glyphCount": len(heights),
-        "medianGlyphHeight": round(median_h, 2),
-        "heightOutlierFraction": round(outlier_fraction, 4),
+        "glyphCount": len(boxes),
+        "lineCount": len(lines),
+        "maxLineInconsistency": round(max_line_inconsistency, 4),
     }

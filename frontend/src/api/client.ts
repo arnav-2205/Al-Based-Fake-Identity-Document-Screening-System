@@ -121,6 +121,69 @@ export async function extractRealtimeOcr(file: File): Promise<RealtimeOcrResult>
   }
 }
 
+export interface FieldMismatchView {
+  field: string;
+  vizValue: string;
+  mrzValue: string;
+}
+
+export interface VizMrzCrossValidationView {
+  status: 'MATCH' | 'MISMATCH' | 'PARTIAL' | 'NOT_APPLICABLE' | 'INCONCLUSIVE';
+  matchedFields: string[];
+  mismatches: FieldMismatchView[];
+  reasons: string[];
+}
+
+export interface ExpiryValidationView {
+  status: 'VALID' | 'EXPIRED' | 'UNKNOWN' | 'NOT_APPLICABLE';
+  expiryDate?: string;
+  daysRemaining?: number;
+  source?: string;
+}
+
+export interface RiskComponentView {
+  code: string;
+  label: string;
+  points: number;
+  triggered: boolean;
+  reason: string;
+}
+
+export interface RiskAssessmentView {
+  score: number;
+  level: 'LOW' | 'MEDIUM' | 'HIGH';
+  components: RiskComponentView[];
+  triggeredComponents: RiskComponentView[];
+  decision: 'CLEAR' | 'MANUAL_REVIEW' | 'REJECT';
+  decisionBasis: string[];
+  summary: string;
+  securityOverrideTriggered: boolean;
+  securityOverrideReason?: string;
+}
+
+export interface CandidateStampRegionView {
+  bbox: number[];
+  inkRatio: number;
+  inkType: string;
+  suspicious: boolean;
+  anomalyReasons: string[];
+}
+
+export interface StampForgeryView {
+  status: 'NOT_DETECTED' | 'SUSPICIOUS' | 'INCONCLUSIVE' | 'NOT_APPLICABLE' | 'NOT_PERFORMED';
+  confidence: number;
+  candidateStampRegions?: CandidateStampRegionView[];
+  reasons: string[];
+}
+
+export interface MetadataAnalysisView {
+  status: 'CLEAN' | 'SUSPICIOUS' | 'INCONCLUSIVE' | 'NOT_AVAILABLE';
+  confidence: number;
+  signals?: string[];
+  metadata?: Record<string, unknown>;
+  reasons: string[];
+}
+
 export interface VerificationView {
   verificationId: number;
   documentId: number;
@@ -132,6 +195,23 @@ export interface VerificationView {
   photoTampering: number;
   textTampering: number;
   stampTampering: number;
+  photoForgeryStatus?: string;
+  photoForgeryConfidence?: number;
+  photoForgeryReasons?: string[];
+  textManipulationStatus?: string;
+  textManipulationConfidence?: number;
+  textManipulationFields?: string[];
+  textManipulationReasons?: string[];
+  stampForgeryStatus?: string;
+  stampForgeryConfidence?: number;
+  stampForgeryReasons?: string[];
+  metadataStatus?: string;
+  metadataConfidence?: number;
+  metadataReasons?: string[];
+  metadataAnalysis?: MetadataAnalysisView;
+  vizMrzCrossValidation?: VizMrzCrossValidationView;
+  expiryValidation?: ExpiryValidationView;
+  riskAssessment?: RiskAssessmentView;
   elaHeatmapBase64?: string;
   faceMatchScore: number;
   faceMatchStatus: string;

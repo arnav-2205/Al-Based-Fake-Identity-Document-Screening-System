@@ -39,6 +39,62 @@ public class VerificationResult {
     @Column(name = "stamp_tampering")
     private Double stampTampering;
 
+    @Column(name = "photo_forgery_status")
+    private String photoForgeryStatus;
+    @Column(name = "photo_forgery_confidence")
+    private Double photoForgeryConfidence;
+    @Type(JsonType.class)
+    @Column(name = "photo_forgery_reasons", columnDefinition = "jsonb")
+    private List<String> photoForgeryReasons;
+
+    @Column(name = "text_manipulation_status")
+    private String textManipulationStatus;
+    @Column(name = "text_manipulation_confidence")
+    private Double textManipulationConfidence;
+    @Type(JsonType.class)
+    @Column(name = "text_manipulation_fields", columnDefinition = "jsonb")
+    private List<String> textManipulationFields;
+    @Type(JsonType.class)
+    @Column(name = "text_manipulation_reasons", columnDefinition = "jsonb")
+    private List<String> textManipulationReasons;
+
+    @Column(name = "stamp_forgery_status")
+    private String stampForgeryStatus;
+    @Column(name = "stamp_forgery_confidence")
+    private Double stampForgeryConfidence;
+    @Type(JsonType.class)
+    @Column(name = "stamp_forgery_reasons", columnDefinition = "jsonb")
+    private List<String> stampForgeryReasons;
+
+    @Column(name = "metadata_status")
+    private String metadataStatus;
+    @Column(name = "metadata_confidence")
+    private Double metadataConfidence;
+    @Type(JsonType.class)
+    @Column(name = "metadata_reasons", columnDefinition = "jsonb")
+    private List<String> metadataReasons;
+
+    @Column(name = "viz_mrz_status")
+    private String vizMrzStatus;
+    @Type(JsonType.class)
+    @Column(name = "viz_mrz_matched_fields", columnDefinition = "jsonb")
+    private List<String> vizMrzMatchedFields;
+    @Type(JsonType.class)
+    @Column(name = "viz_mrz_mismatches", columnDefinition = "jsonb")
+    private List<gov.mha.screening.validation.VizMrzCrossValidation.FieldMismatch> vizMrzMismatches;
+    @Type(JsonType.class)
+    @Column(name = "viz_mrz_reasons", columnDefinition = "jsonb")
+    private List<String> vizMrzReasons;
+
+    @Column(name = "expiry_status")
+    private String expiryStatus;
+    @Column(name = "expiry_date_validated")
+    private java.time.LocalDate expiryDateValidated;
+    @Column(name = "expiry_days_remaining")
+    private Long expiryDaysRemaining;
+    @Column(name = "expiry_source")
+    private String expirySource;
+
     @Column(name = "face_match_score")
     private Double faceMatchScore;
     @Column(name = "face_match_status")
@@ -55,6 +111,10 @@ public class VerificationResult {
     private String riskLevel;
     @Column(name = "final_result")
     private String finalResult;
+
+    @Type(JsonType.class)
+    @Column(name = "risk_assessment", columnDefinition = "jsonb")
+    private gov.mha.screening.risk.RiskEngine.RiskAssessment riskAssessment;
 
     @Type(JsonType.class)
     @Column(name = "reasons", columnDefinition = "jsonb")
@@ -89,6 +149,48 @@ public class VerificationResult {
     public void setTextTampering(Double textTampering) { this.textTampering = textTampering; }
     public Double getStampTampering() { return stampTampering; }
     public void setStampTampering(Double stampTampering) { this.stampTampering = stampTampering; }
+    public String getPhotoForgeryStatus() { return photoForgeryStatus; }
+    public void setPhotoForgeryStatus(String photoForgeryStatus) { this.photoForgeryStatus = photoForgeryStatus; }
+    public Double getPhotoForgeryConfidence() { return photoForgeryConfidence; }
+    public void setPhotoForgeryConfidence(Double photoForgeryConfidence) { this.photoForgeryConfidence = photoForgeryConfidence; }
+    public List<String> getPhotoForgeryReasons() { return photoForgeryReasons; }
+    public void setPhotoForgeryReasons(List<String> photoForgeryReasons) { this.photoForgeryReasons = photoForgeryReasons; }
+    public String getTextManipulationStatus() { return textManipulationStatus; }
+    public void setTextManipulationStatus(String textManipulationStatus) { this.textManipulationStatus = textManipulationStatus; }
+    public Double getTextManipulationConfidence() { return textManipulationConfidence; }
+    public void setTextManipulationConfidence(Double textManipulationConfidence) { this.textManipulationConfidence = textManipulationConfidence; }
+    public List<String> getTextManipulationFields() { return textManipulationFields; }
+    public void setTextManipulationFields(List<String> textManipulationFields) { this.textManipulationFields = textManipulationFields; }
+    public List<String> getTextManipulationReasons() { return textManipulationReasons; }
+    public void setTextManipulationReasons(List<String> textManipulationReasons) { this.textManipulationReasons = textManipulationReasons; }
+    public String getStampForgeryStatus() { return stampForgeryStatus; }
+    public void setStampForgeryStatus(String stampForgeryStatus) { this.stampForgeryStatus = stampForgeryStatus; }
+    public Double getStampForgeryConfidence() { return stampForgeryConfidence; }
+    public void setStampForgeryConfidence(Double stampForgeryConfidence) { this.stampForgeryConfidence = stampForgeryConfidence; }
+    public List<String> getStampForgeryReasons() { return stampForgeryReasons; }
+    public void setStampForgeryReasons(List<String> stampForgeryReasons) { this.stampForgeryReasons = stampForgeryReasons; }
+    public String getMetadataStatus() { return metadataStatus; }
+    public void setMetadataStatus(String metadataStatus) { this.metadataStatus = metadataStatus; }
+    public Double getMetadataConfidence() { return metadataConfidence; }
+    public void setMetadataConfidence(Double metadataConfidence) { this.metadataConfidence = metadataConfidence; }
+    public List<String> getMetadataReasons() { return metadataReasons; }
+    public void setMetadataReasons(List<String> metadataReasons) { this.metadataReasons = metadataReasons; }
+    public String getVizMrzStatus() { return vizMrzStatus; }
+    public void setVizMrzStatus(String vizMrzStatus) { this.vizMrzStatus = vizMrzStatus; }
+    public List<String> getVizMrzMatchedFields() { return vizMrzMatchedFields; }
+    public void setVizMrzMatchedFields(List<String> vizMrzMatchedFields) { this.vizMrzMatchedFields = vizMrzMatchedFields; }
+    public List<gov.mha.screening.validation.VizMrzCrossValidation.FieldMismatch> getVizMrzMismatches() { return vizMrzMismatches; }
+    public void setVizMrzMismatches(List<gov.mha.screening.validation.VizMrzCrossValidation.FieldMismatch> vizMrzMismatches) { this.vizMrzMismatches = vizMrzMismatches; }
+    public List<String> getVizMrzReasons() { return vizMrzReasons; }
+    public void setVizMrzReasons(List<String> vizMrzReasons) { this.vizMrzReasons = vizMrzReasons; }
+    public String getExpiryStatus() { return expiryStatus; }
+    public void setExpiryStatus(String expiryStatus) { this.expiryStatus = expiryStatus; }
+    public java.time.LocalDate getExpiryDateValidated() { return expiryDateValidated; }
+    public void setExpiryDateValidated(java.time.LocalDate expiryDateValidated) { this.expiryDateValidated = expiryDateValidated; }
+    public Long getExpiryDaysRemaining() { return expiryDaysRemaining; }
+    public void setExpiryDaysRemaining(Long expiryDaysRemaining) { this.expiryDaysRemaining = expiryDaysRemaining; }
+    public String getExpirySource() { return expirySource; }
+    public void setExpirySource(String expirySource) { this.expirySource = expirySource; }
     public Double getFaceMatchScore() { return faceMatchScore; }
     public void setFaceMatchScore(Double faceMatchScore) { this.faceMatchScore = faceMatchScore; }
     public String getFaceMatchStatus() { return faceMatchStatus; }
@@ -103,6 +205,8 @@ public class VerificationResult {
     public void setRiskLevel(String riskLevel) { this.riskLevel = riskLevel; }
     public String getFinalResult() { return finalResult; }
     public void setFinalResult(String finalResult) { this.finalResult = finalResult; }
+    public gov.mha.screening.risk.RiskEngine.RiskAssessment getRiskAssessment() { return riskAssessment; }
+    public void setRiskAssessment(gov.mha.screening.risk.RiskEngine.RiskAssessment riskAssessment) { this.riskAssessment = riskAssessment; }
     public List<String> getReasons() { return reasons; }
     public void setReasons(List<String> reasons) { this.reasons = reasons; }
     public Long getVerifiedBy() { return verifiedBy; }

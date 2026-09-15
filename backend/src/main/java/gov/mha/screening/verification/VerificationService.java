@@ -92,6 +92,17 @@ public class VerificationService {
 
         // ---- tamper composite ------------------------------------
         double tamperComposite = compositeTamper(ai.tamper());
+        AiDtos.PhotoForgeryResult pf = ai.tamper() != null ? ai.tamper().photoForgery() : null;
+        boolean photoForgerySuspicious = pf != null && "SUSPICIOUS".equalsIgnoreCase(pf.status());
+
+        AiDtos.TextManipulationResult tm = ai.tamper() != null ? ai.tamper().textManipulation() : null;
+        boolean textManipulationSuspicious = tm != null && "SUSPICIOUS".equalsIgnoreCase(tm.status());
+
+        AiDtos.StampForgeryResult sf = ai.tamper() != null ? ai.tamper().stampForgery() : null;
+        boolean stampForgerySuspicious = sf != null && "SUSPICIOUS".equalsIgnoreCase(sf.status());
+
+        AiDtos.MetadataAnalysisResult ma = ai.tamper() != null ? ai.tamper().metadataAnalysis() : null;
+        boolean metadataSuspicious = ma != null && "SUSPICIOUS".equalsIgnoreCase(ma.status());
 
         boolean facePerformed = liveFaceImage != null
                 && ai.face() != null && ai.face().faceMatchScore() != null
@@ -103,15 +114,27 @@ public class VerificationService {
                 ? checkMultiIdentity(ai.face(), extracted, doc.getId())
                 : new MultiIdentity(false, "NO_LIVE_FACE_SUPPLIED", null, 0.0);
 
+        boolean vizMrzMismatch = validation.vizMrzCrossValidation() != null
+                && "MISMATCH".equalsIgnoreCase(validation.vizMrzCrossValidation().status());
+
         // ---- 9. risk scoring -----------------------------------
-        RiskEngine.Result risk = riskEngine.score(new RiskEngine.Input(
+        RiskEngine.Input riskInput = new RiskEngine.Input(
                 tamperComposite,
                 faceScore(ai.face()),
                 validation.failed(),
                 blacklist.matched(),
                 multi.flagged(),
                 livenessFailed,
-                facePerformed));
+                facePerformed,
+                photoForgerySuspicious,
+                textManipulationSuspicious,
+                vizMrzMismatch,
+                validation.expiryValidation(),
+                stampForgerySuspicious,
+                metadataSuspicious);
+
+        RiskEngine.RiskAssessment riskAssessment = riskEngine.assessRisk(riskInput);
+        RiskEngine.Result risk = riskEngine.score(riskInput);
 
         // ---- assemble reasons ------------------------------------
         List<String> reasons = new ArrayList<>();
@@ -141,13 +164,39 @@ public class VerificationService {
         vr.setPhotoTampering(round(safe(ai.tamper() == null ? null : ai.tamper().photoTampering())));
         vr.setTextTampering(round(safe(ai.tamper() == null ? null : ai.tamper().textTampering())));
         vr.setStampTampering(round(safe(ai.tamper() == null ? null : ai.tamper().stampTampering())));
+        vr.setPhotoForgeryStatus(pf != null && pf.status() != null ? pf.status() : "NOT_PERFORMED");
+        vr.setPhotoForgeryConfidence(pf != null && pf.confidence() != null ? round(pf.confidence()) : 0.0);
+        vr.setPhotoForgeryReasons(pf != null && pf.reasons() != null ? pf.reasons() : List.of());
+        vr.setTextManipulationStatus(tm != null && tm.status() != null ? tm.status() : "NOT_PERFORMED");
+        vr.setTextManipulationConfidence(tm != null && tm.confidence() != null ? round(tm.confidence()) : 0.0);
+        vr.setTextManipulationFields(tm != null && tm.suspiciousFields() != null ? tm.suspiciousFields() : List.of());
+        vr.setTextManipulationReasons(tm != null && tm.reasons() != null ? tm.reasons() : List.of());
+        vr.setStampForgeryStatus(sf != null && sf.status() != null ? sf.status() : "NOT_PERFORMED");
+        vr.setStampForgeryConfidence(sf != null && sf.confidence() != null ? round(sf.confidence()) : 0.0);
+        vr.setStampForgeryReasons(sf != null && sf.reasons() != null ? sf.reasons() : List.of());
+        vr.setMetadataStatus(ma != null && ma.status() != null ? ma.status() : "NOT_AVAILABLE");
+        vr.setMetadataConfidence(ma != null && ma.confidence() != null ? round(ma.confidence()) : 0.0);
+        vr.setMetadataReasons(ma != null && ma.reasons() != null ? ma.reasons() : List.of());
+        if (validation.vizMrzCrossValidation() != null) {
+            vr.setVizMrzStatus(validation.vizMrzCrossValidation().status());
+            vr.setVizMrzMatchedFields(validation.vizMrzCrossValidation().matchedFields());
+            vr.setVizMrzMismatches(validation.vizMrzCrossValidation().mismatches());
+            vr.setVizMrzReasons(validation.vizMrzCrossValidation().reasons());
+        }
+        if (validation.expiryValidation() != null) {
+            vr.setExpiryStatus(validation.expiryValidation().status());
+            vr.setExpiryDateValidated(validation.expiryValidation().expiryDate());
+            vr.setExpiryDaysRemaining(validation.expiryValidation().daysRemaining());
+            vr.setExpirySource(validation.expiryValidation().source());
+        }
         vr.setFaceMatchScore(round(faceScore(ai.face())));
         vr.setFaceMatchStatus(faceStatus(ai.face(), faceScore(ai.face())));
         vr.setLivenessStatus(ai.face() == null ? "UNKNOWN" : String.valueOf(ai.face().livenessStatus()));
         vr.setBlacklistStatus(blacklist.matched() ? "HIT" : "CLEAR");
-        vr.setRiskScore(risk.score());
-        vr.setRiskLevel(risk.level());
-        vr.setFinalResult(deriveFinalResult(risk.level(), validation, blacklist, multi));
+        vr.setRiskScore(riskAssessment.score());
+        vr.setRiskLevel(riskAssessment.level());
+        vr.setRiskAssessment(riskAssessment);
+        vr.setFinalResult(deriveFinalResult(riskAssessment.level(), validation, blacklist, multi));
         vr.setReasons(reasons);
         vr.setVerifiedBy(currentUser.get().getId());
         vr = verificationRepo.save(vr);
@@ -446,11 +495,78 @@ public class VerificationService {
             overrideReason = "HARD SECURITY RULE OVERRIDE: Security rule triggered hard rejection independently of numerical risk score";
         }
 
+        VerificationDtos.VizMrzCrossValidationView vizMrzView = null;
+        if (vr.getVizMrzStatus() != null) {
+            List<VerificationDtos.VizMrzCrossValidationView.FieldMismatchView> mismatchesView = List.of();
+            if (vr.getVizMrzMismatches() != null) {
+                mismatchesView = vr.getVizMrzMismatches().stream()
+                        .map(m -> new VerificationDtos.VizMrzCrossValidationView.FieldMismatchView(m.field(), m.vizValue(), m.mrzValue()))
+                        .toList();
+            }
+            vizMrzView = new VerificationDtos.VizMrzCrossValidationView(
+                    vr.getVizMrzStatus(),
+                    vr.getVizMrzMatchedFields() != null ? vr.getVizMrzMatchedFields() : List.of(),
+                    mismatchesView,
+                    vr.getVizMrzReasons() != null ? vr.getVizMrzReasons() : List.of()
+            );
+        }
+
+        VerificationDtos.ExpiryValidationView expiryView = null;
+        if (vr.getExpiryStatus() != null) {
+            expiryView = new VerificationDtos.ExpiryValidationView(
+                    vr.getExpiryStatus(),
+                    vr.getExpiryDateValidated() != null ? vr.getExpiryDateValidated().toString() : null,
+                    vr.getExpiryDaysRemaining(),
+                    vr.getExpirySource()
+            );
+        }
+
+        VerificationDtos.RiskAssessmentView riskAssessmentView = null;
+        if (vr.getRiskAssessment() != null) {
+            var ra = vr.getRiskAssessment();
+            List<VerificationDtos.RiskComponentView> comps = ra.components() != null ? ra.components().stream()
+                    .map(c -> new VerificationDtos.RiskComponentView(c.code(), c.label(), c.points(), c.triggered(), c.reason()))
+                    .toList() : List.of();
+            List<VerificationDtos.RiskComponentView> trigComps = ra.triggeredComponents() != null ? ra.triggeredComponents().stream()
+                    .map(c -> new VerificationDtos.RiskComponentView(c.code(), c.label(), c.points(), c.triggered(), c.reason()))
+                    .toList() : List.of();
+            riskAssessmentView = new VerificationDtos.RiskAssessmentView(
+                    ra.score(), ra.level(), comps, trigComps, ra.decision(), ra.decisionBasis(), ra.summary(), ra.securityOverrideTriggered(), ra.securityOverrideReason()
+            );
+        }
+
+        VerificationDtos.MetadataAnalysisView metadataView = null;
+        AiDtos.MetadataAnalysisResult ma = t != null ? t.metadataAnalysis() : null;
+        if (ma != null) {
+            metadataView = new VerificationDtos.MetadataAnalysisView(
+                    ma.status() != null ? ma.status() : "NOT_AVAILABLE",
+                    ma.confidence() != null ? ma.confidence() : 0.95,
+                    ma.signals() != null ? ma.signals() : List.of(),
+                    ma.metadata() != null ? ma.metadata() : Map.of(),
+                    ma.reasons() != null ? ma.reasons() : List.of()
+            );
+        } else if (vr.getMetadataStatus() != null) {
+            metadataView = new VerificationDtos.MetadataAnalysisView(
+                    vr.getMetadataStatus(),
+                    vr.getMetadataConfidence() != null ? vr.getMetadataConfidence() : 0.95,
+                    List.of(),
+                    Map.of(),
+                    vr.getMetadataReasons() != null ? vr.getMetadataReasons() : List.of()
+            );
+        }
+
         return new VerificationDtos.VerificationView(
                 vr.getId(), doc.getId(), doc.getDocumentType(),
                 extractedView(e),
                 vr.getOcrStatus(), vr.getValidationStatus(),
                 vr.getTamperingScore(), vr.getPhotoTampering(), vr.getTextTampering(), vr.getStampTampering(),
+                vr.getPhotoForgeryStatus(), vr.getPhotoForgeryConfidence(), vr.getPhotoForgeryReasons(),
+                vr.getTextManipulationStatus(), vr.getTextManipulationConfidence(), vr.getTextManipulationFields(), vr.getTextManipulationReasons(),
+                vr.getStampForgeryStatus(), vr.getStampForgeryConfidence(), vr.getStampForgeryReasons(),
+                vr.getMetadataStatus(), vr.getMetadataConfidence(), vr.getMetadataReasons(), metadataView,
+                vizMrzView,
+                expiryView,
+                riskAssessmentView,
                 t != null ? t.elaHeatmapBase64() : heatmaps.get(vr.getId()),
                 vr.getFaceMatchScore(), vr.getFaceMatchStatus(), vr.getLivenessStatus(),
                 vr.getBlacklistStatus(), multiStatus, multiDetail,

@@ -163,11 +163,12 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
                     lines.append(cleaned)
                     c_val = float(conf)
                     confidences.append(c_val)
-                    xs = [p[0] for p in box]
-                    ys = [p[1] for p in box]
+                    clean_box = [[float(p[0]), float(p[1])] for p in box]
+                    xs = [p[0] for p in clean_box]
+                    ys = [p[1] for p in clean_box]
                     boxes.append({
                         "text": cleaned,
-                        "bbox": box,
+                        "bbox": clean_box,
                         "confidence": c_val,
                         "xmin": min(xs), "ymin": min(ys),
                         "xmax": max(xs), "ymax": max(ys),
@@ -1171,6 +1172,7 @@ def extract(data: bytes) -> dict[str, Any]:
         "fieldStates": field_states,
         "fieldExtractionConfidence": field_extraction_conf,
         "rawOcrConfidence": raw_ocr_conf,
+        "ocrBoxes": boxes,
         "qrDetected": qr_info["qrDetected"],
         "qrDecoded": qr_info["qrDecoded"],
         "qrStatus": qr_info["qrStatus"],
@@ -1193,6 +1195,7 @@ def extract(data: bytes) -> dict[str, Any]:
         "mrz": raw_mrz,
         "fields": fields,
         "visualZone": visual_zone_payload,
+        "ocrBoxes": boxes,
         "confidence": overall_conf,
         "fieldExtractionConfidence": field_extraction_conf,
         "rawOcrConfidence": raw_ocr_conf,

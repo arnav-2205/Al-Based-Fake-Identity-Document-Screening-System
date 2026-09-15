@@ -40,6 +40,37 @@ class OcrResult(BaseModel):
 
 
 
+class PhotoForgeryResult(BaseModel):
+    status: str = "NOT_DETECTED"
+    confidence: float = 0.95
+    reasons: list[str] = Field(default_factory=list)
+
+
+class TextManipulationResult(BaseModel):
+    status: str = "NOT_DETECTED"
+    confidence: float = 0.95
+    suspiciousFields: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    fieldResults: dict[str, Any] = Field(default_factory=dict)
+
+
+class StampForgeryResult(BaseModel):
+    status: str = "NOT_DETECTED"
+    confidence: float = 0.95
+    candidateRegions: list[dict[str, Any]] = Field(default_factory=list)
+    indicators: dict[str, float] = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class MetadataAnalysisResult(BaseModel):
+    status: str = "NOT_AVAILABLE"
+    confidence: float = 0.95
+    signals: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+
+
 class TamperResult(BaseModel):
     tamperingScore: float = 0.0
     photoTampering: float = 0.0
@@ -47,9 +78,14 @@ class TamperResult(BaseModel):
     stampTampering: float = 0.0
     copyMoveScore: float = 0.0
     fontInconsistencyScore: float = 0.0
+    photoForgery: PhotoForgeryResult = Field(default_factory=PhotoForgeryResult)
+    textManipulation: TextManipulationResult = Field(default_factory=TextManipulationResult)
+    stampForgery: StampForgeryResult = Field(default_factory=StampForgeryResult)
+    metadataAnalysis: MetadataAnalysisResult = Field(default_factory=MetadataAnalysisResult)
     elaHeatmapBase64: str | None = None
     exif: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+
 
 
 class FaceResult(BaseModel):

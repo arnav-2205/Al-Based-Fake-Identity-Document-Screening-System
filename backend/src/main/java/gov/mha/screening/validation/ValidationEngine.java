@@ -23,7 +23,9 @@ public class ValidationEngine {
             List<String> reasons,
             boolean mrzChecksumFailed,
             boolean expired,
-            boolean crossZoneMismatch
+            boolean crossZoneMismatch,
+            VizMrzCrossValidation vizMrzCrossValidation,
+            ExpiryValidation expiryValidation
     ) {}
 
     public Outcome validate(ExtractedData data, AiDtos.OcrResult ocr) {
@@ -47,22 +49,17 @@ public class ValidationEngine {
         boolean isPassport = "PASSPORT".equalsIgnoreCase(cat) || "PASSPORT".equalsIgnoreCase(sub) || "PASSPORT".equalsIgnoreCase(detectedType);
         boolean hasMrzData = data.getMrzData() != null && !data.getMrzData().isBlank();
 
+        Optional<Mrz.Parsed> parsedMrz = hasMrzData ? Mrz.parseTd3(data.getMrzData()) : Optional.empty();
+
         if (isPassport) {
             // --- 1. Passport ICAO 9303 MRZ Checkdigits ----------------------
-            Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
-            if (mrz.isPresent()) {
-                Mrz.Parsed m = mrz.get();
+            if (parsedMrz.isPresent()) {
+                Mrz.Parsed m = parsedMrz.get();
                 if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ passport-number check digit FAILED"); }
                 if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ date-of-birth check digit FAILED"); }
                 if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ expiry-date check digit FAILED"); }
                 if (!m.finalCheckValid())     { mrzChecksumFailed = true; reasons.add("MRZ composite check digit FAILED"); }
                 if (m.allChecksValid())       reasons.add("MRZ check digits: all valid");
-
-                // Cross-zone consistency (MRZ vs visual zone)
-                crossZoneMismatch |= mismatch("passport number", m.documentNumber(), data.getPassportNumber(), reasons);
-                crossZoneMismatch |= mismatch("date of birth", str(m.dateOfBirth()), str(data.getDateOfBirth()), reasons);
-                crossZoneMismatch |= mismatch("expiry date", str(m.expiryDate()), str(data.getExpiryDate()), reasons);
-                crossZoneMismatch |= mismatch("surname", m.surname(), surnameOf(data.getName()), reasons);
             } else if (hasMrzData) {
                 reasons.add("Passport MRZ present but unparseable or corrupted");
                 mrzChecksumFailed = true;
@@ -74,9 +71,8 @@ public class ValidationEngine {
             // --- 2. Known Non-Passport Documents (National ID, Driving Licence, Aadhaar, PAN, Visa, etc.) ------
             reasons.add("Document classification active: " + docType);
             if (hasMrzData) {
-                Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
-                if (mrz.isPresent()) {
-                    Mrz.Parsed m = mrz.get();
+                if (parsedMrz.isPresent()) {
+                    Mrz.Parsed m = parsedMrz.get();
                     if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (document number)"); }
                     if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (date of birth)"); }
                     if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (expiry date)"); }
@@ -110,9 +106,8 @@ public class ValidationEngine {
             // --- 3. Unclassified / Unknown Document Type -------------------
             reasons.add("Document type UNKNOWN / UNCLASSIFIED");
             if (hasMrzData) {
-                Optional<Mrz.Parsed> mrz = Mrz.parseTd3(data.getMrzData());
-                if (mrz.isPresent()) {
-                    Mrz.Parsed m = mrz.get();
+                if (parsedMrz.isPresent()) {
+                    Mrz.Parsed m = parsedMrz.get();
                     if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (document number)"); }
                     if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (date of birth)"); }
                     if (!m.expiryValid())         { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (expiry date)"); }
@@ -127,13 +122,26 @@ public class ValidationEngine {
             }
         }
 
-        // --- 3. Expiry -----------------------------------------------------
-        if (data.getExpiryDate() != null && data.getExpiryDate().isBefore(LocalDate.now())) {
-            expired = true;
-            reasons.add("Document EXPIRED on " + data.getExpiryDate());
+        // --- Perform VIZ ↔ MRZ Cross-Validation ---
+        VizMrzCrossValidation vizMrz = performVizMrzCrossValidation(data, parsedMrz, docType, isPassport, hasMrzData);
+        if ("MISMATCH".equals(vizMrz.status())) {
+            crossZoneMismatch = true;
         }
 
-        // --- 4. DOB plausibility ----------------------------------------
+        // --- Perform Document Expiry Validation ---
+        ExpiryValidation expiryValidation = performExpiryValidation(data, parsedMrz, docType, isPassport, hasMrzData);
+        if ("EXPIRED".equals(expiryValidation.status())) {
+            expired = true;
+            reasons.add("Document EXPIRED on " + expiryValidation.expiryDate() + " (" + Math.abs(expiryValidation.daysRemaining()) + " days ago)");
+        } else if ("VALID".equals(expiryValidation.status())) {
+            reasons.add("Document Expiry: VALID until " + expiryValidation.expiryDate() + " (" + expiryValidation.daysRemaining() + " days remaining)");
+        } else if ("NOT_APPLICABLE".equals(expiryValidation.status())) {
+            reasons.add("Document Expiry: NOT_APPLICABLE (" + docType + ")");
+        } else {
+            reasons.add("Document Expiry: UNKNOWN (unable to reliably determine expiry date)");
+        }
+
+        // --- DOB plausibility ----------------------------------------
         if (data.getDateOfBirth() != null) {
             if (data.getDateOfBirth().isAfter(LocalDate.now())) {
                 reasons.add("Date of birth is in the future — implausible");
@@ -146,22 +154,154 @@ public class ValidationEngine {
 
         boolean failed = mrzChecksumFailed || expired || crossZoneMismatch;
         return new Outcome(failed, failed ? "FAIL" : "PASS", reasons,
-                mrzChecksumFailed, expired, crossZoneMismatch);
+                mrzChecksumFailed, expired, crossZoneMismatch, vizMrz, expiryValidation);
     }
 
-    private boolean mismatch(String field, String mrzValue, String visualValue, List<String> reasons) {
-        if (mrzValue == null || visualValue == null) return false;
-        String a = mrzValue.trim().toUpperCase().replace(" ", "");
-        String b = visualValue.trim().toUpperCase().replace(" ", "");
-        if (a.isEmpty() || b.isEmpty()) return false;
-        if (!a.equals(b)) {
-            reasons.add("Cross-zone mismatch on " + field + ": MRZ='" + mrzValue + "' vs visual='" + visualValue + "'");
-            return true;
+    public ExpiryValidation performExpiryValidation(
+            ExtractedData data,
+            Optional<Mrz.Parsed> mrzOpt,
+            String docType,
+            boolean isPassport,
+            boolean hasMrzData
+    ) {
+        String upperDocType = docType != null ? docType.toUpperCase() : "";
+        if (upperDocType.contains("AADHAAR") || upperDocType.contains("PAN")
+                || upperDocType.contains("VOTER") || upperDocType.contains("TAX_ID")
+                || upperDocType.contains("SOCIAL_SECURITY")) {
+            return ExpiryValidation.notApplicable();
         }
-        return false;
+
+        // Priority 1: MRZ Expiry date
+        if (mrzOpt.isPresent() && mrzOpt.get().expiryDate() != null) {
+            return ExpiryValidation.of(mrzOpt.get().expiryDate(), "MRZ");
+        }
+
+        // Priority 2: VIZ Expiry date
+        if (data.getExpiryDate() != null) {
+            return ExpiryValidation.of(data.getExpiryDate(), "VIZ");
+        }
+
+        return ExpiryValidation.unknown("Expiry date could not be reliably determined");
     }
 
-    private static String str(LocalDate d) { return d == null ? null : d.toString(); }
+    public VizMrzCrossValidation performVizMrzCrossValidation(
+            ExtractedData data,
+            Optional<Mrz.Parsed> mrzOpt,
+            String docType,
+            boolean isPassport,
+            boolean hasMrzData
+    ) {
+        if (!hasMrzData || mrzOpt.isEmpty()) {
+            if (isPassport) {
+                return VizMrzCrossValidation.inconclusive("Passport MRZ missing or unparseable — VIZ ↔ MRZ comparison unavailable");
+            }
+            return VizMrzCrossValidation.notApplicable("Document category (" + docType + ") has no MRZ — cross-validation NOT_APPLICABLE");
+        }
+
+        Mrz.Parsed mrz = mrzOpt.get();
+        List<String> matchedFields = new ArrayList<>();
+        List<VizMrzCrossValidation.FieldMismatch> mismatches = new ArrayList<>();
+        List<String> reasons = new ArrayList<>();
+
+        // 1. Name comparison
+        String vizName = data.getName();
+        String mrzSurname = mrz.surname();
+        String mrzGiven = mrz.givenNames();
+        String mrzFull = (mrzSurname != null ? mrzSurname : "") + (mrzGiven != null && !mrzGiven.isBlank() ? " " + mrzGiven : "");
+        mrzFull = mrzFull.trim();
+
+        if (vizName != null && !vizName.isBlank() && !mrzFull.isBlank()) {
+            String normViz = vizName.toUpperCase().replaceAll("[^A-Z0-9 ]", "").replaceAll("\\s+", " ").trim();
+            String normMrz = mrzFull.toUpperCase().replaceAll("[^A-Z0-9 ]", "").replaceAll("\\s+", " ").trim();
+            String normVizSurname = surnameOf(vizName);
+            String normMrzSurname = mrzSurname != null ? mrzSurname.toUpperCase().replaceAll("[^A-Z0-9]", "") : null;
+
+            boolean nameMatches = normViz.equals(normMrz)
+                    || (normVizSurname != null && normMrzSurname != null && !normVizSurname.isBlank() && normVizSurname.replaceAll("[^A-Z0-9]", "").equals(normMrzSurname));
+
+            if (nameMatches) {
+                matchedFields.add("name");
+            } else {
+                mismatches.add(new VizMrzCrossValidation.FieldMismatch("name", vizName, mrzFull));
+                reasons.add("VIZ name '" + vizName + "' does not match MRZ name '" + mrzFull + "'");
+            }
+        }
+
+        // 2. Date of Birth comparison
+        LocalDate vizDob = data.getDateOfBirth();
+        LocalDate mrzDob = mrz.dateOfBirth();
+        if (vizDob != null && mrzDob != null) {
+            if (vizDob.equals(mrzDob)) {
+                matchedFields.add("dateOfBirth");
+            } else {
+                mismatches.add(new VizMrzCrossValidation.FieldMismatch("dateOfBirth", vizDob.toString(), mrzDob.toString()));
+                reasons.add("VIZ date of birth '" + vizDob + "' does not match MRZ date of birth '" + mrzDob + "'");
+            }
+        }
+
+        // 3. Document / Passport Number comparison
+        String vizDocNum = data.getPassportNumber();
+        if ((vizDocNum == null || vizDocNum.isBlank()) && data.getVisualZone() != null && data.getVisualZone().get("documentNumber") != null) {
+            vizDocNum = String.valueOf(data.getVisualZone().get("documentNumber"));
+        }
+        String mrzDocNum = mrz.documentNumber();
+
+        if (vizDocNum != null && !vizDocNum.isBlank() && mrzDocNum != null && !mrzDocNum.isBlank()) {
+            String normVizDoc = vizDocNum.toUpperCase().replaceAll("[^A-Z0-9]", "");
+            String normMrzDoc = mrzDocNum.toUpperCase().replaceAll("[^A-Z0-9]", "");
+
+            if (normVizDoc.equals(normMrzDoc)) {
+                matchedFields.add("documentNumber");
+            } else {
+                mismatches.add(new VizMrzCrossValidation.FieldMismatch("documentNumber", vizDocNum, mrzDocNum));
+                reasons.add("VIZ document number '" + vizDocNum + "' does not match MRZ document number '" + mrzDocNum + "'");
+            }
+        }
+
+        // 4. Nationality comparison
+        String vizNat = data.getNationality();
+        String mrzNat = mrz.nationality();
+
+        if (vizNat != null && !vizNat.isBlank() && mrzNat != null && !mrzNat.isBlank()) {
+            String normVizNat = vizNat.toUpperCase().trim();
+            String normMrzNat = mrzNat.toUpperCase().trim();
+
+            boolean natMatch = normVizNat.equals(normMrzNat)
+                    || normVizNat.startsWith(normMrzNat)
+                    || normMrzNat.startsWith(normVizNat);
+
+            if (natMatch) {
+                matchedFields.add("nationality");
+            } else {
+                mismatches.add(new VizMrzCrossValidation.FieldMismatch("nationality", vizNat, mrzNat));
+                reasons.add("VIZ nationality '" + vizNat + "' does not match MRZ nationality '" + mrzNat + "'");
+            }
+        }
+
+        // 5. Expiry Date comparison
+        LocalDate vizExp = data.getExpiryDate();
+        LocalDate mrzExp = mrz.expiryDate();
+        if (vizExp != null && mrzExp != null) {
+            if (vizExp.equals(mrzExp)) {
+                matchedFields.add("expiryDate");
+            } else {
+                mismatches.add(new VizMrzCrossValidation.FieldMismatch("expiryDate", vizExp.toString(), mrzExp.toString()));
+                reasons.add("VIZ expiry date '" + vizExp + "' does not match MRZ expiry date '" + mrzExp + "'");
+            }
+        }
+
+        String status;
+        if (!mismatches.isEmpty()) {
+            status = "MISMATCH";
+        } else if (!matchedFields.isEmpty()) {
+            status = "MATCH";
+        } else {
+            status = "INCONCLUSIVE";
+            reasons.add("VIZ ↔ MRZ cross-validation: INCONCLUSIVE (No overlapping fields available for comparison)");
+        }
+
+        return new VizMrzCrossValidation(status, matchedFields, mismatches, reasons);
+    }
 
     private static String surnameOf(String fullName) {
         if (fullName == null || fullName.isBlank()) return null;

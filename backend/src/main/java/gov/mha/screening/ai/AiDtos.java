@@ -92,11 +92,58 @@ public final class AiDtos {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PhotoForgeryResult(
+            @JsonProperty("status") String status,
+            @JsonProperty("confidence") Double confidence,
+            @JsonProperty("reasons") List<String> reasons
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TextManipulationResult(
+            @JsonProperty("status") String status,
+            @JsonProperty("confidence") Double confidence,
+            @JsonProperty("suspiciousFields") List<String> suspiciousFields,
+            @JsonProperty("reasons") List<String> reasons,
+            @JsonProperty("fieldResults") Map<String, Object> fieldResults
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CandidateStampRegion(
+            @JsonProperty("bbox") List<Integer> bbox,
+            @JsonProperty("inkRatio") Double inkRatio,
+            @JsonProperty("inkType") String inkType,
+            @JsonProperty("suspicious") Boolean suspicious,
+            @JsonProperty("anomalyReasons") List<String> anomalyReasons
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record StampForgeryResult(
+            @JsonProperty("status") String status,
+            @JsonProperty("confidence") Double confidence,
+            @JsonProperty("candidateRegions") List<Map<String, Object>> candidateRegions,
+            @JsonProperty("candidateStampRegions") List<CandidateStampRegion> candidateStampRegions,
+            @JsonProperty("reasons") List<String> reasons
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record MetadataAnalysisResult(
+            @JsonProperty("status") String status,
+            @JsonProperty("confidence") Double confidence,
+            @JsonProperty("signals") List<String> signals,
+            @JsonProperty("metadata") Map<String, Object> metadata,
+            @JsonProperty("reasons") List<String> reasons
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TamperResult(
             Double tamperingScore,
             Double photoTampering,
             Double textTampering,
             Double stampTampering,
+            @JsonProperty("photoForgery") PhotoForgeryResult photoForgery,
+            @JsonProperty("textManipulation") TextManipulationResult textManipulation,
+            @JsonProperty("stampForgery") StampForgeryResult stampForgery,
+            @JsonProperty("metadataAnalysis") MetadataAnalysisResult metadataAnalysis,
             String elaHeatmapBase64,
             Map<String, Object> exif,
             List<String> notes
