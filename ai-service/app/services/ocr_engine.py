@@ -220,7 +220,12 @@ def _find_mrz(text: str) -> tuple[str | None, str]:
 
     # TD3 Passport (2x44)
     for i, l1 in enumerate(cleaned):
-        if l1.startswith("P") and len(l1) >= 15:
+        if (
+            l1.startswith("P")
+            and len(l1) >= 15
+            and (l1.startswith("P<") or (len(l1) >= 5 and l1[2:5].isalpha()))
+            and ("<<" in l1 or l1.count("<") >= 3)
+        ):
             for j in range(i + 1, min(i + 4, len(cleaned))):
                 l2 = cleaned[j]
                 if len(l2) >= 20 and any(c.isdigit() for c in l2):
@@ -728,6 +733,8 @@ class GenericNationalIDAdapter:
     def _detect_doc_category_and_subtype(self, upper: str, raw_mrz: str | None) -> tuple[str, str]:
         if raw_mrz and raw_mrz.startswith("P<"):
             return "PASSPORT", "PASSPORT"
+        if raw_mrz and (raw_mrz.startswith("V<") or "\nV<" in raw_mrz):
+            return "VISA", "VISA"
         if any(k in upper for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")) or (any(k in upper for k in ("GOVERNMENT OF INDIA", "INDIA")) and re.search(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", upper)):
             return "NATIONAL_ID", "AADHAAR"
         if any(k in upper for k in ("DRIVING LICENCE", "DRIVING LICENSE", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT")):
@@ -740,10 +747,10 @@ class GenericNationalIDAdapter:
             return "NATIONAL_ID", "RESIDENT_PERMIT"
         if any(k in upper for k in ("SOCIAL SECURITY", "SOCIAL INSURANCE", "SSN")):
             return "NATIONAL_ID", "SOCIAL_SECURITY_ID"
+        if any(k in upper for k in ("VISA", "VISA TRAVEL", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA", "TYPE OF VISA")):
+            return "VISA", "VISA"
         if any(k in upper for k in ("PASSPORT", "PASSEPORT")):
             return "PASSPORT", "PASSPORT"
-        if any(k in upper for k in ("VISA", "VISA TRAVEL")):
-            return "VISA", "VISA"
         if any(k in upper for k in ("PERSONALAUSWEIS", "NATIONAL ID", "IDENTITY CARD", "CARTE NATIONALE", "CITIZEN CARD")):
             return "NATIONAL_ID", "NATIONAL_ID_CARD"
         return "NATIONAL_ID", "OTHER_GOVT_ID"
@@ -1043,33 +1050,33 @@ def detect_document_type(
     """
     text_norm = _normalize_text(text).upper()
 
-    # 1. PASSPORT Detection
+    # 1. MRZ Detection (Passports & Visas)
     if raw_mrz:
         clean_mrz = raw_mrz.strip().upper()
         if clean_mrz.startswith("P<") or "P<" in clean_mrz:
             return "PASSPORT", 0.98
+        if clean_mrz.startswith("V<") or "\nV<" in clean_mrz:
+            return "VISA", 0.98
 
+    # 2. VISA Detection (Evaluated before generic Passport text keywords so "PASSPORT NO." on Visas does not misclassify as Passport)
+    visa_keywords = (
+        "VISA", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA",
+        "TYPE OF VISA", "VISA TYPE", "VISA NO", "VISA NUMBER", "DURATION OF STAY",
+        "NUMBER OF ENTRIES", "VALID FOR", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02"
+    )
+    visa_hits = sum(1 for k in visa_keywords if k in text_norm)
+    if visa_hits >= 2 or any(k in text_norm for k in ("SCHENGEN VISA", "TYPE OF VISA", "VISA TYPE")):
+        return "VISA", 0.95
+    if visa_hits == 1 and "VISA" in text_norm:
+        if any(k in text_norm for k in ("PASSPORT NO", "PASSPORT NUMBER", "STAY", "ENTRIES", "VALID FOR", "CATEGORY", "ISSUED AT", "BEARER", "CLASS", "CONTROL NUMBER")):
+            return "VISA", 0.90
+
+    # 3. PASSPORT Detection
     passport_keywords = ("PASSPORT", "PASSEPORT", "PASAPORTE", "REPUBLIK PASSPORT", "REPUBLIC PASSPORT")
     if any(k in text_norm for k in passport_keywords):
         if any(k in text_norm for k in ("REPUBLIC", "GOVERNMENT", "KINGDOM", "UNION", "FEDERATION", "P<", "COUNTRY CODE", "AUTHORITY")):
             return "PASSPORT", 0.95
         return "PASSPORT", 0.90
-
-    # 2. VISA Detection
-    if raw_mrz and (raw_mrz.strip().upper().startswith("V<") or "\nV<" in raw_mrz.strip().upper()):
-        return "VISA", 0.98
-
-    visa_keywords = (
-        "VISA", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA",
-        "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY",
-        "NUMBER OF ENTRIES", "VALID FOR", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02"
-    )
-    visa_hits = sum(1 for k in visa_keywords if k in text_norm)
-    if visa_hits >= 2 or "SCHENGEN VISA" in text_norm or "TYPE OF VISA" in text_norm:
-        return "VISA", 0.95
-    if visa_hits == 1 and "VISA" in text_norm:
-        if any(k in text_norm for k in ("PASSPORT NO", "STAY", "ENTRIES", "VALID FOR", "CATEGORY", "ISSUED AT", "BEARER")):
-            return "VISA", 0.90
 
     # 3. DRIVING_LICENCE Detection
     if barcode_data and barcode_data.get("barcodeDetected"):
@@ -1160,6 +1167,16 @@ def extract_visa_fields(
                 visa_number = num
 
     if not visa_number:
+        ctrl_match = re.search(
+            r"(?:CONTROL\s*(?:NUMBER|NO\.?|#|N[O°]))[\s\S]{0,40}?\b([A-Z0-9-]*\d[A-Z0-9-]{4,19})\b",
+            text_upper,
+        )
+        if ctrl_match:
+            cand_ctrl = ctrl_match.group(1).strip()
+            if cand_ctrl not in ("PASSPORT", "RECEIPT", "APPLICATION"):
+                visa_number = cand_ctrl
+
+    if not visa_number:
         vn_match = re.search(
             r"(?<!TYPE OF )(?<!CATEGORY OF )\b(?:VISA\s*(?:NO\.?|NUMBER|#|N[O°])|DOCUMENT\s*(?:NUMBER|NO\.?))\s*[:\s|-]*\s*([A-Z0-9-]{5,15})",
             text_upper,
@@ -1169,29 +1186,33 @@ def extract_visa_fields(
 
         if vn_match:
             candidate_num = vn_match.group(1).strip()
-            if not any(k in candidate_num for k in ("PASSPORT", "CONTROL", "RECEIPT", "APPLICATION", "TOURIST", "BUSINESS", "STUDENT", "ENTRY")):
+            if not any(k in candidate_num for k in ("PASSPORT", "RECEIPT", "APPLICATION", "TOURIST", "BUSINESS", "STUDENT", "ENTRY")):
                 visa_number = candidate_num
-
 
     if not visa_number and fields:
         if fields.get("visaNumber"):
             visa_number = fields["visaNumber"]
 
     # 2. Visa Type
-    vt_match = re.search(
-        r"(?:VISA\s*TYPE|TYPE\s*OF\s*VISA|CATEGORY|CLASS|TYPE)\s*[:\s|-]*\s*([A-Z\s]{3,20})",
-        text_upper,
-    )
-    if vt_match:
-        type_str = vt_match.group(1).strip()
-        first_word = type_str.split()[0] if type_str.split() else ""
-        if first_word in ("TOURIST", "BUSINESS", "STUDENT", "WORK", "EMPLOYMENT", "TRANSIT", "VISITOR", "DIPLOMATIC", "OFFICIAL", "ENTRY", "RESIDENCE"):
-            visa_type = first_word
-        elif len(type_str) >= 3 and not any(k in type_str for k in ("NUMBER", "NO", "DATE", "VALID", "UNTIL", "ENTRIES")):
-            visa_type = type_str
+    vt_class_code = re.search(r"\b([A-Z0-9]{1,4}/[A-Z0-9]{1,4})\b", text_upper)
+    if vt_class_code:
+        code_val = vt_class_code.group(1)
+        visa_type = "B1/B2" if code_val in ("BL/BZ", "B1/B2") else code_val
+    else:
+        vt_match = re.search(
+            r"(?:VISA\s*TYPE\s*/?\s*CLASS|VISA\s*TYPE|TYPE\s*OF\s*VISA|CATEGORY|CLASS)\s*[:\s|-]*\s*([A-Z0-9/\s-]{2,20})",
+            text_upper,
+        )
+        if vt_match:
+            type_str = vt_match.group(1).strip()
+            words = [w for w in type_str.split() if w not in ("JOHN", "SURNAME", "GIVEN", "NAME", "PASSPORT", "NUMBER", "NO", "DATE", "CLASS", "TYPE")]
+            if words:
+                cand_type = " ".join(words)
+                if cand_type not in ("R", "BL") and len(cand_type) >= 2:
+                    visa_type = cand_type
 
     if not visa_type:
-        for cat in ("TOURIST", "BUSINESS", "STUDENT", "WORK", "EMPLOYMENT", "TRANSIT", "VISITOR", "DIPLOMATIC", "OFFICIAL"):
+        for cat in ("TOURIST", "BUSINESS", "STUDENT", "WORK", "EMPLOYMENT", "TRANSIT", "VISITOR", "DIPLOMATIC", "OFFICIAL", "SCHENGEN", "B1/B2", "B1", "B2"):
             if cat in text_upper:
                 visa_type = cat
                 break
@@ -1246,20 +1267,34 @@ def extract_visa_fields(
             pass
 
     # 5. Issue & Expiry Dates
-    id_match = re.search(r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUED|VALID\s*FROM|FROM)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
-    if id_match:
-        issue_date = _normalize_date(id_match.group(1))
-    elif fields and fields.get("issueDate"):
-        issue_date = fields["issueDate"]
+    def _parse_visa_date(dt_str: str) -> str | None:
+        if not dt_str:
+            return None
+        formatted = re.sub(r"(\d{1,2})([A-Za-z]{3})(\d{4})", r"\1 \2 \3", dt_str.strip())
+        norm = _normalize_date(formatted)
+        return norm if norm else None
 
-    exp_match = re.search(r"(?:EXPIRY\s*DATE|DATE\s*OF\s*EXPIRY|VALID\s*UNTIL|UNTIL|EXPIRATION)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
-    if exp_match:
-        expiry_date = _normalize_date(exp_match.group(1))
-    elif fields and fields.get("expiryDate"):
+    all_d_matches = re.findall(r"\b(\d{1,2}[-/\s]?[A-Za-z]{3}[-/\s]?\d{4}|\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4})\b", text_upper)
+    parsed_dates = list(dict.fromkeys([d for d in [_parse_visa_date(x) for x in all_d_matches] if d]))
+    parsed_dates.sort()
+
+    if len(parsed_dates) >= 2:
+        issue_date = parsed_dates[0]
+        expiry_date = parsed_dates[-1]
+    elif len(parsed_dates) == 1:
+        issue_date = parsed_dates[0]
+
+    if not issue_date and fields and fields.get("issueDate"):
+        issue_date = fields["issueDate"]
+    if not expiry_date and fields and fields.get("expiryDate"):
         expiry_date = fields["expiryDate"]
 
     # 6. Check if Document is a Visa
-    is_visa = (detected_type == "VISA") or any(k in text_upper for k in ("SCHENGEN VISA", "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY", "ENTRIES: MULT", "ENTRIES: 01"))
+    is_visa = (
+        (detected_type == "VISA")
+        or (fields and (fields.get("documentCategory") == "VISA" or fields.get("documentSubtype") == "VISA" or fields.get("detectedDocumentType") == "VISA"))
+        or any(k in text_upper for k in ("VISA", "VISA TRAVEL", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA", "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02"))
+    )
 
     if not is_visa:
         return {
