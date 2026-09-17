@@ -615,7 +615,8 @@ class GenericNationalIDAdapter:
         "PERSONALAUSWEIS", "REPUBLIQUE", "FRANCAISE", "MINISTERE", "INTERIEUR", "NATIONAL",
         "IDENTITY", "CARD", "PASSPORT", "PASSEPORT", "SIGNATURE", "HOLDER", "ADDRESS",
         "DOMICILE", "ANSCHRIFT", "DIRECCION", "AUTHORITY", "ISSUED", "ISSUING", "CODE",
-        "MALE", "FEMALE", "SEX", "GENDER", "DOB", "DATE", "BIRTH", "NAISSANCE"
+        "MALE", "FEMALE", "SEX", "GENDER", "DOB", "DATE", "BIRTH", "NAISSANCE",
+        "CONTROL", "NUMBER", "POST", "ENTRIES", "EXPIRATION", "CLASS", "TYPE", "ANNOTATION"
     )
 
     def extract(self, text: str, boxes: list[dict[str, Any]], raw_mrz: str | None) -> dict[str, Any]:
@@ -869,12 +870,14 @@ class GenericNationalIDAdapter:
             )
             if doc_m:
                 val = doc_m.group(1).strip().replace(" ", "")
-                if len(val) >= 4 and not any(k in val for k in self.NOISE_KEYWORDS):
+                if len(val) >= 4 and not any(k in val for k in self.NOISE_KEYWORDS) and val not in ("NUMBER", "CONTROL", "PASSPORT", "DOCUMENT", "SERIAL"):
                     return val, 0.90
 
         for l in lines:
             cleaned_l = l.strip().upper()
             if any(k in cleaned_l for k in self.NOISE_KEYWORDS) or len(cleaned_l) < 5 or len(cleaned_l) > 20:
+                continue
+            if cleaned_l in ("NUMBER", "CONTROL", "PASSPORT", "DOCUMENT", "SERIAL"):
                 continue
             if re.match(r"^[A-Z0-9-]{5,20}$", cleaned_l) and sum(1 for c in cleaned_l if c.isdigit()) >= 3 and not re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", cleaned_l):
                 return cleaned_l, 0.85
@@ -884,6 +887,15 @@ class GenericNationalIDAdapter:
     def _extract_dob(
         self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
     ) -> tuple[str, float]:
+        m_month = re.search(r"\b([0-9IO]{1,2}[-/\s]?[A-Z]{3}[-/\s]?[0-9]{4})\b", upper)
+        if m_month:
+            raw_m = m_month.group(1).upper()
+            raw_m = re.sub(r"^(IO|1O|I0|O0)", "10", raw_m)
+            raw_m = re.sub(r"(\d{1,2})([A-Z]{3})(\d{4})", r"\1 \2 \3", raw_m)
+            norm = _normalize_date(raw_m)
+            if norm:
+                return norm, 0.90
+
         m = re.search(
             r"(?:DOB|DATE\s*OF\s*BIRTH|YEAR\s*OF\s*BIRTH|BIRTH\s*YEAR|YOB|BIRTH|BORN|NAISSANCE|GEBURTSDATUM|FECHA\s*DE\s*NACIMIENTO)\s*[:\s|/]*"
             r"(\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|\d{1,4}[-/,\s]\d{1,2}[-/,\s]\d{2,4}|\b\d{4}\b)",
@@ -937,10 +949,12 @@ class GenericNationalIDAdapter:
         return "", 0.0
 
     def _extract_nationality(self, upper: str, country: str) -> tuple[str, float]:
-        m = re.search(r"(?:NATIONALITY|NAT|CITIZENSHIP|STAATSANGEHÖRIGKEIT|NACIONALIDAD)\s*[:\s|-]+\s*([A-Z]{3}|\w+)", upper)
+        m = re.search(r"(?:NATIONALITY|NAT|CITIZENSHIP|STAATSANGEHÖRIGKEIT|NACIONALIDAD)[\s\S]{0,40}?\b([A-Z0-9]{3})\b", upper)
         if m:
             val = m.group(1).upper()
-            if len(val) == 3:
+            if val in ("1ND", "IND"):
+                return "IND", 0.95
+            if len(val) == 3 and val.isalpha():
                 return val, 0.95
         if country == "INDIA":
             return "IND", 0.92
@@ -1140,7 +1154,7 @@ def extract_visa_fields(
     fields: dict[str, str] | None = None,
     detected_type: str = "UNKNOWN",
 ) -> dict[str, Any]:
-    """Extracts dedicated visa fields (Visa Number, Visa Type, Entry Type, Stay Duration, Dates)
+    """Extracts dedicated visa fields (Visa Number, Visa Type, Entry Type, Stay Duration, Dates, Surname, Given Name, DOB, Nationality, Passport #)
 
     and produces structured validation status for Visa documents.
     """
@@ -1156,6 +1170,157 @@ def extract_visa_fields(
     issue_date: str | None = None
     expiry_date: str | None = None
     issuing_country: str | None = fields.get("issuingCountry") if fields else None
+
+    surname: str | None = None
+    given_name: str | None = None
+    holder_name: str | None = None
+    passport_number: str | None = None
+    date_of_birth: str | None = None
+    gender: str | None = None
+    nationality: str | None = None
+
+    # MRZ Parsing (Visa V< or Passports)
+    if raw_mrz:
+        clean_mrz = raw_mrz.strip().upper()
+        # MRZ Line 1: VNUSASMITH<JOHN<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+        m_mrz_name = re.search(r"V<[A-Z0-9]{3}([A-Z<]+)", clean_mrz)
+        if m_mrz_name:
+            n_parts = [p for p in m_mrz_name.group(1).split("<<") if p]
+            if len(n_parts) >= 2:
+                surname = n_parts[0].replace("<", " ").strip()
+                given_name = n_parts[1].replace("<", " ").strip()
+            elif len(n_parts) == 1:
+                surname = n_parts[0].replace("<", " ").strip()
+
+        # MRZ Line 2: Cz6311T47<91ND810610...
+        m_mrz_pnum = re.search(r"\b([A-Z0-9]{6,12})<[0-9]{1}([A-Z0-9]{3})([0-9]{6})", clean_mrz)
+        if m_mrz_pnum:
+            passport_number = m_mrz_pnum.group(1).replace("<", "").strip()
+            nat_raw = m_mrz_pnum.group(2)
+            if nat_raw in ("1ND", "IND"):
+                nationality = "IND"
+            elif len(nat_raw) == 3 and nat_raw.isalpha():
+                nationality = nat_raw
+            dob_raw = m_mrz_pnum.group(3)
+            try:
+                yy = int(dob_raw[:2])
+                yr = 1900 + yy if yy > 30 else 2000 + yy
+                date_of_birth = f"{yr}-{dob_raw[2:4]}-{dob_raw[4:6]}"
+            except Exception:
+                pass
+
+    # Visual bounding boxes for Surname, Given Name, Passport #, DOB, Gender, Nationality
+    if boxes:
+        for b in boxes:
+            t = b["text"].strip().upper()
+            if t in ("SURNAME", "SURNAME:") or t.startswith("SURNAME"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 70]
+                if not cands:
+                    cands = [box for box in boxes if box != b and abs(box["cy"] - lbl_cy) < 20 and 5 < box["xmin"] - b["xmax"] < 250]
+                if cands:
+                    cand_v = cands[0]["text"].strip(" :|-").upper()
+                    if cand_v and len(cand_v) >= 2 and not any(k in cand_v for k in ("SURNAME", "NAME", "GIVEN", "PASSPORT", "CONTROL")):
+                        surname = cand_v
+
+            if t in ("GIVEN NAME", "GIVEN NAME:", "GIVEN") or t.startswith("GIVEN NAME"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 70]
+                if not cands:
+                    cands = [box for box in boxes if box != b and abs(box["cy"] - lbl_cy) < 20 and 5 < box["xmin"] - b["xmax"] < 250]
+                if cands:
+                    cand_v = cands[0]["text"].strip(" :|-").upper()
+                    if cand_v and len(cand_v) >= 2 and not any(k in cand_v for k in ("GIVEN", "NAME", "SURNAME", "PASSPORT", "CONTROL")):
+                        given_name = cand_v
+
+            if t in ("PASSPORT NUMBER", "PASSPORT NO", "PASSPORT NO.", "PASSPORT"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 70]
+                for c in cands:
+                    cand_v = c["text"].strip(" :|-").upper()
+                    if cand_v and len(cand_v) >= 5 and any(ch.isdigit() for ch in cand_v) and cand_v not in ("NUMBER", "PASSPORT", "CONTROL", "ISSUED", "ENTRIES", "EXPIRATION", "BIRTH", "DATE"):
+                        passport_number = cand_v
+                        break
+
+            if t in ("BIRTH DATE", "DATE OF BIRTH", "DOB"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 70]
+                if cands:
+                    cand_v = cands[0]["text"].strip(" :|-").upper()
+                    clean_d = re.sub(r"^(IO|1O|I0|O0)", "10", cand_v)
+                    clean_d = re.sub(r"(\d{1,2})([A-Za-z]{3})(\d{4})", r"\1 \2 \3", clean_d)
+                    norm_d = _normalize_date(clean_d)
+                    if norm_d:
+                        date_of_birth = norm_d
+
+            if t in ("SEX", "GENDER"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 40]
+                if cands:
+                    g_val = cands[0]["text"].strip().upper()
+                    if g_val in ("M", "F"):
+                        gender = g_val
+
+            if t in ("NATIONALITY", "NATIONALITY:"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 60]
+                if cands:
+                    n_val = cands[0]["text"].strip().upper()
+                    if n_val in ("1ND", "IND"):
+                        nationality = "IND"
+                    elif len(n_val) == 3 and n_val.isalpha():
+                        nationality = n_val
+
+    # Regex fallbacks if spatial box pairing missed any field
+    if not surname:
+        sn_m = re.search(r"SURNAME\s*[:\s|-]*\s*([A-Z]{2,30})", text_upper)
+        if sn_m and sn_m.group(1) not in ("GIVEN", "NAME", "PASSPORT", "NUMBER", "VISA", "POST"):
+            surname = sn_m.group(1)
+
+    if not given_name:
+        gn_m = re.search(r"GIVEN\s*NAME\s*[:\s|-]*\s*([A-Z]{2,30})", text_upper)
+        if gn_m and gn_m.group(1) not in ("SURNAME", "NAME", "PASSPORT", "NUMBER", "VISA", "TYPE"):
+            given_name = gn_m.group(1)
+
+    if given_name and surname:
+        holder_name = f"{given_name} {surname}"
+    elif surname:
+        holder_name = surname
+    elif given_name:
+        holder_name = given_name
+
+    if not passport_number:
+        pn_m = re.search(r"PASSPORT\s*(?:NUMBER|NO\.?|#)?[\s\S]{0,80}?\b([A-Z][0-9A-Z]{5,10})\b", text_upper)
+        if pn_m:
+            cand_pn = pn_m.group(1).strip()
+            if cand_pn not in ("NUMBER", "PASSPORT", "CONTROL", "ISSUED", "ENTRIES", "EXPIRATION", "NATIONALITY"):
+                passport_number = cand_pn
+
+    if not passport_number:
+        m_pn_alpha = re.search(r"\b([A-Z]{1,2}\d[0-9A-Z]{5,9})\b", text_upper)
+        if m_pn_alpha:
+            passport_number = m_pn_alpha.group(1).strip()
+
+    if not date_of_birth:
+        dob_m = re.search(r"(?:BIRTH\s*DATE|DATE\s*OF\s*BIRTH|DOB)[\s\S]{0,30}?\b([0-9IO]{1,2}[-/\s]?[A-Z]{3}[-/\s]?[0-9]{4})\b", text_upper)
+        if dob_m:
+            clean_d = re.sub(r"^(IO|1O|I0|O0)", "10", dob_m.group(1))
+            clean_d = re.sub(r"(\d{1,2})([A-Za-z]{3})(\d{4})", r"\1 \2 \3", clean_d)
+            norm_d = _normalize_date(clean_d)
+            if norm_d:
+                date_of_birth = norm_d
+
+    if not gender:
+        if re.search(r"\bSEX\b[\s\S]{0,20}?\bM\b", text_upper):
+            gender = "M"
+        elif re.search(r"\bSEX\b[\s\S]{0,20}?\bF\b", text_upper):
+            gender = "F"
+
+    if not nationality:
+        nat_m = re.search(r"\bNATIONALITY\b[\s\S]{0,30}?\b([A-Z0-9]{3})\b", text_upper)
+        if nat_m:
+            n_raw = nat_m.group(1)
+            nationality = "IND" if n_raw in ("1ND", "IND") else n_raw
 
     # 1. Visa Number
     if raw_mrz:
@@ -1241,6 +1406,8 @@ def extract_visa_fields(
                     entry_type = "DOUBLE"
                     break
 
+    if entry_type == "UNKNOWN" and re.search(r"\bENTRIES\b[\s\S]{0,60}?\bM\b", text_upper):
+        entry_type = "MULTIPLE"
 
     # 4. Stay Duration
     sd_match = re.search(
@@ -1299,6 +1466,15 @@ def extract_visa_fields(
     if not is_visa:
         return {
             "visaNumber": None,
+            "controlNumber": None,
+            "passportNumber": None,
+            "surname": None,
+            "givenName": None,
+            "holderName": None,
+            "name": None,
+            "dateOfBirth": None,
+            "gender": None,
+            "nationality": None,
             "visaType": None,
             "entryType": "UNKNOWN",
             "stayDuration": None,
@@ -1341,6 +1517,15 @@ def extract_visa_fields(
 
     return {
         "visaNumber": visa_number,
+        "controlNumber": visa_number,
+        "passportNumber": passport_number,
+        "surname": surname,
+        "givenName": given_name,
+        "holderName": holder_name,
+        "name": holder_name,
+        "dateOfBirth": date_of_birth,
+        "gender": gender,
+        "nationality": nationality,
         "visaType": visa_type,
         "entryType": entry_type,
         "stayDuration": stay_duration,
@@ -2167,6 +2352,51 @@ def extract(data: bytes) -> dict[str, Any]:
     permit_res = extract_permit_fields(
         text, boxes=boxes, barcode_info=barcode_info, qr_info=qr_info, fields=fields, detected_type=autodetected_type
     )
+
+    if doc_category == "VISA" or autodetected_type == "VISA":
+        if visa_res.get("holderName"):
+            fields["name"] = visa_res["holderName"]
+            fields["holderName"] = visa_res["holderName"]
+            field_confidences["name"] = 0.95
+            field_confidences["holderName"] = 0.95
+            field_states["name"] = "DETECTED"
+            field_states["holderName"] = "DETECTED"
+        if visa_res.get("surname"):
+            fields["surname"] = visa_res["surname"]
+        if visa_res.get("givenName"):
+            fields["givenName"] = visa_res["givenName"]
+        if visa_res.get("visaNumber"):
+            fields["documentNumber"] = visa_res["visaNumber"]
+            fields["controlNumber"] = visa_res["visaNumber"]
+            fields["visaNumber"] = visa_res["visaNumber"]
+            field_confidences["documentNumber"] = 0.95
+            field_states["documentNumber"] = "DETECTED"
+        if visa_res.get("passportNumber"):
+            fields["passportNumber"] = visa_res["passportNumber"]
+            field_confidences["passportNumber"] = 0.95
+            field_states["passportNumber"] = "DETECTED"
+        if visa_res.get("dateOfBirth"):
+            fields["dateOfBirth"] = visa_res["dateOfBirth"]
+            field_confidences["dateOfBirth"] = 0.95
+            field_states["dateOfBirth"] = "DETECTED"
+        if visa_res.get("gender"):
+            fields["gender"] = visa_res["gender"]
+            field_confidences["gender"] = 0.95
+            field_states["gender"] = "DETECTED"
+        if visa_res.get("nationality"):
+            fields["nationality"] = visa_res["nationality"]
+            field_confidences["nationality"] = 0.95
+            field_states["nationality"] = "DETECTED"
+        if visa_res.get("issueDate"):
+            fields["issueDate"] = visa_res["issueDate"]
+            field_confidences["issueDate"] = 0.95
+            field_states["issueDate"] = "DETECTED"
+        if visa_res.get("expiryDate"):
+            fields["expiryDate"] = visa_res["expiryDate"]
+            field_confidences["expiryDate"] = 0.95
+            field_states["expiryDate"] = "DETECTED"
+        if visa_res.get("issuingCountry"):
+            fields["issuingCountry"] = visa_res["issuingCountry"]
 
     visual_zone_payload = {
         **fields,

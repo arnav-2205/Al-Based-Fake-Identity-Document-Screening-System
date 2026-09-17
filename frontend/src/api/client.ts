@@ -109,13 +109,13 @@ export async function extractRealtimeOcr(file: File): Promise<RealtimeOcrResult>
   // Try direct /ai/ocr/extract proxy first for ultra-fast response, fallback to backend /api/documents/extract-ocr
   try {
     const res = await axios.post<RealtimeOcrResult>('/ai/ocr/extract', form, {
-      timeout: 35000,
+      timeout: 60000,
     });
     return res.data;
   } catch {
     const res = await api.post<RealtimeOcrResult>('/documents/extract-ocr', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 35000,
+      timeout: 60000,
     });
     return res.data;
   }
