@@ -2539,6 +2539,16 @@ def _raw_extract(data: bytes) -> dict[str, Any]:
     )
 
     if doc_category == "VISA" or autodetected_type == "VISA":
+        doc_category = "VISA"
+        doc_subtype = "VISA"
+        doc_type = "VISA"
+        applicable_fields, applicable_checks = _get_document_capabilities(
+            "VISA",
+            "VISA",
+            mrz_detected=parsed_mrz is not None,
+            qr_detected=qr_info["qrDetected"],
+            barcode_detected=barcode_info["barcodeDetected"],
+        )
         if visa_res.get("holderName"):
             fields["name"] = visa_res["holderName"]
             fields["holderName"] = visa_res["holderName"]
@@ -2623,6 +2633,41 @@ def _raw_extract(data: bytes) -> dict[str, Any]:
             fields["state"] = dl_res["state"]
         if dl_res.get("issuingAuthority"):
             fields["issuingAuthority"] = dl_res["issuingAuthority"]
+    elif autodetected_type == "PASSPORT" or doc_category == "PASSPORT" or doc_subtype == "PASSPORT":
+        doc_category = "PASSPORT"
+        doc_subtype = "PASSPORT"
+        doc_type = "PASSPORT"
+        applicable_fields, applicable_checks = _get_document_capabilities(
+            "PASSPORT",
+            "PASSPORT",
+            mrz_detected=parsed_mrz is not None,
+            qr_detected=qr_info["qrDetected"],
+            barcode_detected=barcode_info["barcodeDetected"],
+        )
+    elif autodetected_type == "PERMIT" or doc_category == "PERMIT":
+        doc_category = "PERMIT"
+        if doc_subtype not in ("RESIDENT_PERMIT", "WORK_PERMIT", "ENTRY_PERMIT", "STAY_PERMIT"):
+            doc_subtype = "PERMIT"
+        doc_type = doc_subtype
+        applicable_fields, applicable_checks = _get_document_capabilities(
+            doc_category,
+            doc_subtype,
+            mrz_detected=parsed_mrz is not None,
+            qr_detected=qr_info["qrDetected"],
+            barcode_detected=barcode_info["barcodeDetected"],
+        )
+    elif autodetected_type == "NATIONAL_ID" or doc_category == "NATIONAL_ID":
+        doc_category = "NATIONAL_ID"
+        if doc_subtype not in ("AADHAAR", "TAX_ID", "PAN", "VOTER_ID", "SOCIAL_SECURITY_ID", "EMIRATES_ID", "CIVIL_ID", "NATIONAL_ID_CARD"):
+            doc_subtype = "NATIONAL_ID_CARD"
+        doc_type = doc_subtype
+        applicable_fields, applicable_checks = _get_document_capabilities(
+            doc_category,
+            doc_subtype,
+            mrz_detected=parsed_mrz is not None,
+            qr_detected=qr_info["qrDetected"],
+            barcode_detected=barcode_info["barcodeDetected"],
+        )
 
     visual_zone_payload = {
         **fields,

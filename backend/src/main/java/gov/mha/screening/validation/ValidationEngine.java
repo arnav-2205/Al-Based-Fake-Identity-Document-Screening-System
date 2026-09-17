@@ -34,6 +34,8 @@ public class ValidationEngine {
         boolean expired = false;
         boolean crossZoneMismatch = false;
 
+        String autoType = ocr != null && ocr.detectedType() != null ? ocr.detectedType()
+                : (data.getVisualZone() != null && data.getVisualZone().get("detectedType") != null ? String.valueOf(data.getVisualZone().get("detectedType")) : null);
         String cat = ocr != null && ocr.documentCategory() != null ? ocr.documentCategory()
                 : (data.getVisualZone() != null && data.getVisualZone().get("documentCategory") != null ? String.valueOf(data.getVisualZone().get("documentCategory")) : null);
         String sub = ocr != null && ocr.documentSubtype() != null ? ocr.documentSubtype()
@@ -43,10 +45,11 @@ public class ValidationEngine {
 
         boolean hasClassification = (cat != null && !"UNKNOWN".equalsIgnoreCase(cat))
                 || (sub != null && !"UNKNOWN".equalsIgnoreCase(sub))
-                || (detectedType != null && !"UNKNOWN".equalsIgnoreCase(detectedType));
+                || (detectedType != null && !"UNKNOWN".equalsIgnoreCase(detectedType))
+                || (autoType != null && !"UNKNOWN".equalsIgnoreCase(autoType));
 
-        String docType = sub != null ? sub : (detectedType != null ? detectedType : (cat != null ? cat : "UNKNOWN"));
-        boolean isPassport = "PASSPORT".equalsIgnoreCase(cat) || "PASSPORT".equalsIgnoreCase(sub) || "PASSPORT".equalsIgnoreCase(detectedType);
+        String docType = sub != null ? sub : (detectedType != null ? detectedType : (autoType != null ? autoType : (cat != null ? cat : "UNKNOWN")));
+        boolean isPassport = "PASSPORT".equalsIgnoreCase(cat) || "PASSPORT".equalsIgnoreCase(sub) || "PASSPORT".equalsIgnoreCase(detectedType) || "PASSPORT".equalsIgnoreCase(autoType);
         boolean hasMrzData = data.getMrzData() != null && !data.getMrzData().isBlank();
 
         Optional<Mrz.Parsed> parsedMrz = hasMrzData ? Mrz.parseTd3(data.getMrzData()) : Optional.empty();

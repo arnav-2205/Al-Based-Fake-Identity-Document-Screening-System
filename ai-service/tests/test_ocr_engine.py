@@ -155,5 +155,83 @@ def test_sha256_ocr_caching():
     assert ocr_engine._get_cache_size() == 2
 
 
+def test_document_type_desynchronization_prevention():
+    # 1. Passport (Spanish PASAPORTE without MRZ) -> detectedType and detectedDocumentType agree
+    pasaporte_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+      <text x="50" y="40">PASAPORTE</text>
+      <text x="50" y="70">REPUBLICA DE COLOMBIA</text>
+      <text x="50" y="100">PASAPORTE NO: C12345678</text>
+      <text x="50" y="130">NOMBRES: JUAN PEREZ</text>
+    </svg>"""
+    res_p = ocr_engine.extract(pasaporte_svg.encode())
+    assert res_p["detectedType"] == "PASSPORT"
+    assert res_p["detectedDocumentType"] == "PASSPORT"
+    assert res_p["documentCategory"] == "PASSPORT"
+
+    # 2. Visa -> agree
+    visa_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+      <text x="50" y="40">SCHENGEN VISA</text>
+      <text x="50" y="70">TYPE OF VISA: C</text>
+      <text x="50" y="100">VISA NO: V98765432</text>
+      <text x="50" y="130">NUMBER OF ENTRIES: MULT</text>
+    </svg>"""
+    res_v = ocr_engine.extract(visa_svg.encode())
+    assert res_v["detectedType"] == "VISA"
+    assert res_v["detectedDocumentType"] == "VISA"
+    assert res_v["documentCategory"] == "VISA"
+
+    # 3. Driving Licence -> agree
+    res_dl = ocr_engine.extract(SAMPLE_DL_SVG.encode())
+    assert res_dl["detectedType"] == "DRIVING_LICENCE"
+    assert res_dl["detectedDocumentType"] == "DRIVING_LICENCE"
+    assert res_dl["documentCategory"] == "DRIVING_LICENCE"
+
+    # 4. National ID -> agree
+    nid_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+      <text x="50" y="40">NATIONAL IDENTITY CARD</text>
+      <text x="50" y="70">ID NO: NID-99887766</text>
+      <text x="50" y="100">NAME: ALEX SMITH</text>
+    </svg>"""
+    res_nid = ocr_engine.extract(nid_svg.encode())
+    assert res_nid["detectedType"] == "NATIONAL_ID"
+    assert res_nid["detectedDocumentType"] == "NATIONAL_ID_CARD"
+    assert res_nid["documentCategory"] == "NATIONAL_ID"
+
+    # 5. Work Permit -> agree top-level PERMIT
+    wp_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+      <text x="50" y="40">WORK PERMIT</text>
+      <text x="50" y="70">PERMIT NO: WP-12345678</text>
+      <text x="50" y="100">EXPIRE DATE: 2028-06-30</text>
+    </svg>"""
+    res_wp = ocr_engine.extract(wp_svg.encode())
+    assert res_wp["detectedType"] == "PERMIT"
+    assert res_wp["detectedDocumentType"] == "PERMIT"
+    assert res_wp["documentCategory"] == "PERMIT"
+
+    # 6. Specific National ID Subtype (Aadhaar) -> preserved
+    aadhaar_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+      <text x="50" y="40">GOVERNMENT OF INDIA</text>
+      <text x="50" y="70">AADHAAR - UNIQUE IDENTIFICATION AUTHORITY</text>
+      <text x="50" y="100">1234 5678 9012</text>
+    </svg>"""
+    res_adh = ocr_engine.extract(aadhaar_svg.encode())
+    assert res_adh["detectedType"] == "NATIONAL_ID"
+    assert res_adh["detectedDocumentType"] == "AADHAAR"
+    assert res_adh["documentSubtype"] == "AADHAAR"
+    assert res_adh["documentCategory"] == "NATIONAL_ID"
+
+    # 7. Specific Permit Subtype (Resident Permit) -> preserved
+    rp_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+      <text x="50" y="40">AUFENTHALTSTITEL</text>
+      <text x="50" y="70">RESIDENCE PERMIT NO: RP-98765432</text>
+    </svg>"""
+    res_rp = ocr_engine.extract(rp_svg.encode())
+    assert res_rp["detectedType"] == "PERMIT"
+    assert res_rp["detectedDocumentType"] == "RESIDENT_PERMIT"
+    assert res_rp["documentSubtype"] == "RESIDENT_PERMIT"
+    assert res_rp["documentCategory"] == "PERMIT"
+
+
+
 
 
