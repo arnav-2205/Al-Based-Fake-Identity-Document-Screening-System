@@ -244,6 +244,17 @@ export interface PermitVerificationView {
   validationMessages?: string[];
 }
 
+export interface CrossDocumentCorrelationView {
+  status: 'MATCH' | 'MISMATCH' | 'NOT_ENOUGH_EVIDENCE';
+  previousDocumentId: number;
+  previousDocumentType: string;
+  matchedFields: number;
+  conflictingFields: number;
+  availableFields: number;
+  matchedFieldsList: string[];
+  conflictingFieldsList: string[];
+}
+
 export interface VerificationView {
   verificationId: number;
   documentId: number;
@@ -280,6 +291,7 @@ export interface VerificationView {
   permitVerification?: PermitVerificationView;
 
   riskAssessment?: RiskAssessmentView;
+  crossDocumentCorrelations?: CrossDocumentCorrelationView[];
 
   elaHeatmapBase64?: string;
   faceMatchScore: number;

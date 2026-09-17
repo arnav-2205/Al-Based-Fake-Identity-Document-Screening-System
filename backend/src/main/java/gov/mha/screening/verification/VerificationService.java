@@ -10,6 +10,7 @@ import gov.mha.screening.common.ApiException;
 import gov.mha.screening.common.HashUtil;
 import gov.mha.screening.config.AppProperties;
 import gov.mha.screening.document.Document;
+import gov.mha.screening.document.DocumentRepository;
 import gov.mha.screening.document.DocumentService;
 import gov.mha.screening.document.MinioStorageService;
 import gov.mha.screening.extraction.ExtractedData;
@@ -43,6 +44,7 @@ public class VerificationService {
     private final AiClient aiClient;
     private final ExtractedDataRepository extractedRepo;
     private final VerificationRepository verificationRepo;
+    private final DocumentRepository documentRepo;
     private final FaceEmbeddingRepository embeddingRepo;
     private final ValidationEngine validationEngine;
     private final BlacklistService blacklistService;
@@ -53,6 +55,7 @@ public class VerificationService {
     private final CurrentUser currentUser;
     private final AppProperties props;
     private final ObjectMapper objectMapper;
+    private final CrossDocumentCorrelationService crossDocumentCorrelationService;
 
     /** ELA heatmaps are large and demo-only — kept in memory, not in Postgres. */
     private final Map<Long, String> heatmaps = new ConcurrentHashMap<>();
@@ -695,6 +698,45 @@ public class VerificationService {
                 ? vr.getPermitVerification()
                 : new VerificationDtos.PermitVerificationView(null, null, null, null, null, null, null, null, null, null, null, "NOT_APPLICABLE", List.of("Document is not classified as Permit"));
 
+        List<VerificationDtos.CrossDocumentCorrelationView> correlations = new ArrayList<>();
+
+        if (e != null) {
+            List<ExtractedData> previousDataList = extractedRepo.findAll();
+            System.out.println("CROSS-DOC: extracted records = " + previousDataList.size());
+
+            for (ExtractedData previousData : previousDataList) {
+                if (previousData.getDocumentId() == null || previousData.getDocumentId().equals(doc.getId())) {
+                    continue;
+                }
+
+                Document previousDocument = documentRepo.findById(previousData.getDocumentId()).orElse(null);
+                if (previousDocument == null) {
+                    continue;
+                }
+
+                CrossDocumentCorrelationService.CorrelationResult result =
+                    crossDocumentCorrelationService.compare(
+                            doc,
+                            e,
+                            previousDocument,
+                            previousData
+                    );
+
+                correlations.add(
+                        new VerificationDtos.CrossDocumentCorrelationView(
+                                result.status(),
+                                result.previousDocumentId(),
+                                result.previousDocumentType(),
+                                result.matchedFields(),
+                                result.conflictingFields(),
+                                result.availableFields(),
+                                result.matchedFieldsList(),
+                                result.conflictingFieldsList()
+                        )
+                );
+            }
+        }
+
         return new VerificationDtos.VerificationView(
                 vr.getId(), doc.getId(), doc.getDocumentType(),
                 selectedType, detectedType, detectionConf,
@@ -712,7 +754,7 @@ public class VerificationService {
                 natIdView,
                 permitView,
                 riskAssessmentView,
-
+                correlations,
 
                 t != null ? t.elaHeatmapBase64() : heatmaps.get(vr.getId()),
                 vr.getFaceMatchScore(), vr.getFaceMatchStatus(), vr.getLivenessStatus(),

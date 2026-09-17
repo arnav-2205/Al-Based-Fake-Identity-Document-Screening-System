@@ -36,6 +36,7 @@ export default function VerificationDetail() {
   const [v, setV] = useState<VerificationView | null>(null);
   const [integrity, setIntegrity] = useState<any>(null);
   const [decisionMsg, setDecisionMsg] = useState('');
+  const [selectedAction, setSelectedAction] = useState('');
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [err, setErr] = useState('');
 
@@ -79,6 +80,7 @@ export default function VerificationDetail() {
   }
 
   async function submitDecision(decision: string) {
+    setSelectedAction(decision);
     await api.post(`/verification/${id}/decision`, { decision });
     setDecisionMsg(`Officer decision recorded: ${decision.replace('_', ' ')}`);
   }
@@ -780,6 +782,94 @@ export default function VerificationDetail() {
               </div>
             </div>
 
+            <section className="bg-slate-900/60 border border-slate-800/80 p-6 sm:p-8 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">
+              <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2.5 uppercase tracking-wider">
+                <UserCheck className="w-4.5 h-4.5 text-cyan-400" />
+                <span>Cross-Document Identity Correlation</span>
+              </h2>
+
+              {!v.crossDocumentCorrelations || v.crossDocumentCorrelations.length === 0 ? (
+                <div className="text-xs text-slate-500 font-mono">
+                  No previous documents available for cross-document comparison.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {v.crossDocumentCorrelations.map((c) => (
+                    <div
+                      key={c.previousDocumentId}
+                      className="border border-slate-800 rounded-2xl p-4 bg-slate-950/60"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-bold text-white">
+                            Document #{c.previousDocumentId}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            Type: {c.previousDocumentType}
+                          </div>
+                        </div>
+
+                        <span
+                          className={`text-[10px] font-bold font-mono px-2 py-1 rounded-md ${
+                            c.status === 'MATCH'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : c.status === 'MISMATCH'
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          }`}
+                        >{c.status.replace(/_/g, ' ')}
+                          
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                        <div className="bg-slate-900 rounded-xl p-2">
+                          <div className="text-sm font-bold text-emerald-400">
+                            {c.matchedFields}
+                          </div>
+                          <div className="text-[9px] text-slate-500 uppercase">
+                            Matches
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-900 rounded-xl p-2">
+                          <div className="text-sm font-bold text-rose-400">
+                            {c.conflictingFields}
+                          </div>
+                          <div className="text-[9px] text-slate-500 uppercase">
+                            Conflicts
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-900 rounded-xl p-2">
+                          <div className="text-sm font-bold text-white">
+                            {c.availableFields}
+                          </div>
+                          <div className="text-[9px] text-slate-500 uppercase">
+                            Compared
+                          </div>
+                        </div>
+                      </div>
+
+                      {c.matchedFieldsList.length > 0 && (
+                        <div className="mt-3 text-[10px] font-mono text-emerald-400">
+                          <span className="font-bold">Matched: </span>
+                          {c.matchedFieldsList.join(', ')}
+                        </div>
+                      )}
+
+                      {c.conflictingFieldsList.length > 0 && (
+                        <div className="mt-1 text-[10px] font-mono text-rose-400">
+                          <span className="font-bold">Conflicts: </span>
+                          {c.conflictingFieldsList.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
             {/* Document Expiry Validation */}
             <div className="flex justify-between items-start py-2.5">
               <div>
@@ -1144,6 +1234,17 @@ export default function VerificationDetail() {
         <h2 className="text-sm font-extrabold text-white uppercase tracking-wider">
           Official Officer Screening Decision
         </h2>
+        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+            System Final Decision
+          </div>
+          <div className="mt-1 text-lg font-extrabold text-white">
+            {v.finalResult}
+          </div>
+          <div className="mt-1 text-xs text-slate-400 font-mono">
+            Risk: {v.riskScore?.toFixed(1) ?? '0.0'} / 100 · Level: {v.riskLevel}
+          </div>
+        </div>
 
         <div className="flex flex-wrap gap-4">
           <button
@@ -1165,6 +1266,12 @@ export default function VerificationDetail() {
             🚨 DETAIN &amp; REPORT
           </button>
         </div>
+
+        {selectedAction && (
+          <div className="mt-4 text-sm font-medium text-center">
+            Selected Officer Action: {selectedAction.replace('_', ' ')}
+          </div>
+        )}
 
         {decisionMsg && (
           <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-bold text-center">

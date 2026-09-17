@@ -141,6 +141,17 @@ public final class VerificationDtos {
             String securityOverrideReason
     ) {}
 
+    public record CrossDocumentCorrelationView(
+             String status,
+             Long previousDocumentId,
+             String previousDocumentType,
+             int matchedFields,
+             int conflictingFields,
+             int availableFields,
+             List<String> matchedFieldsList,
+             List<String> conflictingFieldsList
+    ) {}
+
     public record VerificationView(
             Long verificationId,
             Long documentId,
@@ -176,6 +187,7 @@ public final class VerificationDtos {
             NationalIdVerificationView nationalIdVerification,
             PermitVerificationView permitVerification,
             RiskAssessmentView riskAssessment,
+            List<CrossDocumentCorrelationView> crossDocumentCorrelations,
             String elaHeatmapBase64,
             Double faceMatchScore,
             String faceMatchStatus,
