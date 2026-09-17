@@ -36,27 +36,28 @@ public class RiskEngine {
             boolean vizMrzMismatch,
             ExpiryValidation expiryValidation,
             boolean stampForgerySuspicious,
-            boolean metadataSuspicious
+            boolean metadataSuspicious,
+            boolean mrzChecksumFailed
     ) {
         public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
                      boolean blacklistHit, boolean multipleIdentityFlag, boolean livenessFailed,
                      boolean faceCheckPerformed) {
             this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
-                 livenessFailed, faceCheckPerformed, false, false, false, null, false, false);
+                 livenessFailed, faceCheckPerformed, false, false, false, null, false, false, validationFailed);
         }
 
         public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
                      boolean blacklistHit, boolean multipleIdentityFlag, boolean livenessFailed,
                      boolean faceCheckPerformed, boolean photoForgerySuspicious) {
             this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
-                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, false, false, null, false, false);
+                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, false, false, null, false, false, validationFailed);
         }
 
         public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
                      boolean blacklistHit, boolean multipleIdentityFlag, boolean livenessFailed,
                      boolean faceCheckPerformed, boolean photoForgerySuspicious, boolean textManipulationSuspicious) {
             this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
-                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, false, null, false, false);
+                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, false, null, false, false, validationFailed);
         }
 
         public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
@@ -64,7 +65,7 @@ public class RiskEngine {
                      boolean faceCheckPerformed, boolean photoForgerySuspicious, boolean textManipulationSuspicious,
                      boolean vizMrzMismatch) {
             this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
-                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, null, false, false);
+                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, null, false, false, validationFailed);
         }
 
         public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
@@ -72,7 +73,7 @@ public class RiskEngine {
                      boolean faceCheckPerformed, boolean photoForgerySuspicious, boolean textManipulationSuspicious,
                      boolean vizMrzMismatch, ExpiryValidation expiryValidation) {
             this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
-                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, expiryValidation, false, false);
+                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, expiryValidation, false, false, validationFailed);
         }
 
         public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
@@ -80,7 +81,16 @@ public class RiskEngine {
                      boolean faceCheckPerformed, boolean photoForgerySuspicious, boolean textManipulationSuspicious,
                      boolean vizMrzMismatch, ExpiryValidation expiryValidation, boolean stampForgerySuspicious) {
             this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
-                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, expiryValidation, stampForgerySuspicious, false);
+                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, expiryValidation, stampForgerySuspicious, false, validationFailed);
+        }
+
+        public Input(double tamperingScore, double faceMatchScore, boolean validationFailed,
+                     boolean blacklistHit, boolean multipleIdentityFlag, boolean livenessFailed,
+                     boolean faceCheckPerformed, boolean photoForgerySuspicious, boolean textManipulationSuspicious,
+                     boolean vizMrzMismatch, ExpiryValidation expiryValidation, boolean stampForgerySuspicious,
+                     boolean metadataSuspicious) {
+            this(tamperingScore, faceMatchScore, validationFailed, blacklistHit, multipleIdentityFlag,
+                 livenessFailed, faceCheckPerformed, photoForgerySuspicious, textManipulationSuspicious, vizMrzMismatch, expiryValidation, stampForgerySuspicious, metadataSuspicious, validationFailed);
         }
     }
 
@@ -283,7 +293,7 @@ public class RiskEngine {
             overrideTriggered = true;
             overrideReason = "Watchlist Blacklist Hit";
             decisionBasis.add("Security override: Watchlist Blacklist Hit");
-        } else if (in.validationFailed()) {
+        } else if (in.mrzChecksumFailed()) {
             decision = "REJECT";
             overrideTriggered = true;
             overrideReason = "MRZ Checksum Checkdigit Validation Failed";

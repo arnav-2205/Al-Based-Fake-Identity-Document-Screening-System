@@ -136,7 +136,8 @@ public class VerificationService {
                 vizMrzMismatch,
                 validation.expiryValidation(),
                 stampForgerySuspicious,
-                metadataSuspicious);
+                metadataSuspicious,
+                validation.mrzChecksumFailed());
 
         RiskEngine.RiskAssessment riskAssessment = riskEngine.assessRisk(riskInput);
         RiskEngine.Result risk = riskEngine.score(riskInput);

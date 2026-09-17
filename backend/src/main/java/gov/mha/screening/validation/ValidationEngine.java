@@ -53,7 +53,20 @@ public class ValidationEngine {
 
         if (isPassport) {
             // --- 1. Passport ICAO 9303 MRZ Checkdigits ----------------------
-            if (parsedMrz.isPresent()) {
+            if (ocr != null && Boolean.TRUE.equals(ocr.mrzValid())) {
+                reasons.add("MRZ check digits: all valid");
+            } else if (ocr != null && Boolean.FALSE.equals(ocr.mrzValid())) {
+                mrzChecksumFailed = true;
+                if (parsedMrz.isPresent()) {
+                    Mrz.Parsed m = parsedMrz.get();
+                    if (!m.documentNumberValid()) reasons.add("MRZ passport-number check digit FAILED");
+                    if (!m.dobValid())            reasons.add("MRZ date-of-birth check digit FAILED");
+                    if (!m.expiryValid())         reasons.add("MRZ expiry-date check digit FAILED");
+                    if (!m.finalCheckValid())     reasons.add("MRZ composite check digit FAILED");
+                } else {
+                    reasons.add("MRZ check digits: FAILED (per AI OCR engine)");
+                }
+            } else if (parsedMrz.isPresent()) {
                 Mrz.Parsed m = parsedMrz.get();
                 if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ passport-number check digit FAILED"); }
                 if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ date-of-birth check digit FAILED"); }
@@ -71,7 +84,20 @@ public class ValidationEngine {
             // --- 2. Known Non-Passport Documents (National ID, Driving Licence, Aadhaar, PAN, Visa, etc.) ------
             reasons.add("Document classification active: " + docType);
             if (hasMrzData) {
-                if (parsedMrz.isPresent()) {
+                if (ocr != null && Boolean.TRUE.equals(ocr.mrzValid())) {
+                    reasons.add("MRZ check digits: all valid");
+                } else if (ocr != null && Boolean.FALSE.equals(ocr.mrzValid())) {
+                    mrzChecksumFailed = true;
+                    if (parsedMrz.isPresent()) {
+                        Mrz.Parsed m = parsedMrz.get();
+                        if (!m.documentNumberValid()) reasons.add("MRZ check digit FAILED (document number)");
+                        if (!m.dobValid())            reasons.add("MRZ check digit FAILED (date of birth)");
+                        if (!m.expiryValid())         reasons.add("MRZ check digit FAILED (expiry date)");
+                        if (!m.finalCheckValid())     reasons.add("MRZ check digit FAILED (composite)");
+                    } else {
+                        reasons.add("MRZ check digits: FAILED (per AI OCR engine)");
+                    }
+                } else if (parsedMrz.isPresent()) {
                     Mrz.Parsed m = parsedMrz.get();
                     if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (document number)"); }
                     if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (date of birth)"); }
@@ -106,7 +132,20 @@ public class ValidationEngine {
             // --- 3. Unclassified / Unknown Document Type -------------------
             reasons.add("Document type UNKNOWN / UNCLASSIFIED");
             if (hasMrzData) {
-                if (parsedMrz.isPresent()) {
+                if (ocr != null && Boolean.TRUE.equals(ocr.mrzValid())) {
+                    reasons.add("MRZ check digits: all valid");
+                } else if (ocr != null && Boolean.FALSE.equals(ocr.mrzValid())) {
+                    mrzChecksumFailed = true;
+                    if (parsedMrz.isPresent()) {
+                        Mrz.Parsed m = parsedMrz.get();
+                        if (!m.documentNumberValid()) reasons.add("MRZ check digit FAILED (document number)");
+                        if (!m.dobValid())            reasons.add("MRZ check digit FAILED (date of birth)");
+                        if (!m.expiryValid())         reasons.add("MRZ check digit FAILED (expiry date)");
+                        if (!m.finalCheckValid())     reasons.add("MRZ check digit FAILED (composite)");
+                    } else {
+                        reasons.add("MRZ check digits: FAILED (per AI OCR engine)");
+                    }
+                } else if (parsedMrz.isPresent()) {
                     Mrz.Parsed m = parsedMrz.get();
                     if (!m.documentNumberValid()) { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (document number)"); }
                     if (!m.dobValid())            { mrzChecksumFailed = true; reasons.add("MRZ check digit FAILED (date of birth)"); }

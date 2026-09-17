@@ -398,4 +398,166 @@ class ValidationEngineTest {
         assertEquals(5.0, ra.score());
         assertTrue(ra.triggeredComponents().stream().anyMatch(c -> "METADATA_ANOMALY".equals(c.code())));
     }
+
+    @Test
+    void aiMrzValidTruePreventsMrzChecksumFailed() {
+        ExtractedData data = new ExtractedData();
+        // MRZ string that Python AI service validated, but Java parser might consider raw/unparseable
+        String mrzStr = "P<UTOTESTER<<ALEXANDER<<<<<<<<<<<<<<<<<<<<<<\nT123456787UT09001158M3512311<<<<<<<<<<<<<<04";
+        data.setMrzData(mrzStr);
+        data.setVisualZone(Map.of(
+                "documentCategory", "PASSPORT",
+                "documentSubtype", "PASSPORT",
+                "detectedDocumentType", "PASSPORT"
+        ));
+
+        AiDtos.OcrResult ocr = new AiDtos.OcrResult(
+                mrzStr,
+                Map.of("passportNumber", "T12345678"),
+                data.getVisualZone(),
+                0.98,
+                true, // mrzValid = true from AI service
+                Map.of("documentNumber", true, "dateOfBirth", true, "expiryDate", true, "composite", true),
+                List.of("MRZ: ICAO 9303 parsed — Integrity Checkdigits: VALIDATED")
+        );
+
+        ValidationEngine.Outcome outcome = engine.validate(data, ocr);
+
+        assertFalse(outcome.mrzChecksumFailed(), "When AI ocr.mrzValid() is true, mrzChecksumFailed MUST be false");
+        assertFalse(outcome.failed(), "Outcome MUST NOT fail when MRZ is validated and no other mismatches exist");
+        assertEquals("PASS", outcome.status());
+        assertTrue(outcome.reasons().stream().anyMatch(r -> r.contains("MRZ check digits: all valid")),
+                "Reasons should indicate MRZ check digits are all valid");
+    }
+
+    @Test
+    void aiMrzValidFalseTriggersMrzChecksumFailed() {
+        ExtractedData data = new ExtractedData();
+        String mrzStr = "P<UTOTESTER<<ALEXANDER<<<<<<<<<<<<<<<<<<<<<<\nT123456787UT09001158M3512311<<<<<<<<<<<<<<09";
+        data.setMrzData(mrzStr);
+        data.setVisualZone(Map.of(
+                "documentCategory", "PASSPORT",
+                "documentSubtype", "PASSPORT",
+                "detectedDocumentType", "PASSPORT"
+        ));
+
+        AiDtos.OcrResult ocr = new AiDtos.OcrResult(
+                mrzStr,
+                Map.of("passportNumber", "T12345678"),
+                data.getVisualZone(),
+                0.98,
+                false, // mrzValid = false from AI service
+                Map.of("composite", false),
+                List.of("MRZ composite check digit FAILED")
+        );
+
+        ValidationEngine.Outcome outcome = engine.validate(data, ocr);
+
+        assertTrue(outcome.mrzChecksumFailed(), "When AI ocr.mrzValid() is false, mrzChecksumFailed MUST be true");
+        assertTrue(outcome.failed(), "Outcome MUST fail when AI mrzValid is false");
+        assertEquals("FAIL", outcome.status());
+    }
+
+    @Test
+    void aiMrzValidNullFallsBackToJavaParser() {
+        ExtractedData data = new ExtractedData();
+        String validJavaMrz =
+                "P<UTOTESTER<<ALEXANDER<<<<<<<<<<<<<<<<<<<<<<\n" +
+                "T123456787UTO9001158M3512311<<<<<<<<<<<<<<04";
+        data.setMrzData(validJavaMrz);
+        data.setVisualZone(Map.of(
+                "documentCategory", "PASSPORT",
+                "documentSubtype", "PASSPORT",
+                "detectedDocumentType", "PASSPORT"
+        ));
+
+        // ocr.mrzValid is null (absent)
+        AiDtos.OcrResult ocr = new AiDtos.OcrResult(
+                validJavaMrz,
+                Map.of("passportNumber", "T12345678"),
+                data.getVisualZone(),
+                0.98,
+                null, // mrzValid is absent/null
+                Map.of(),
+                List.of()
+        );
+
+        ValidationEngine.Outcome outcome = engine.validate(data, ocr);
+
+        assertFalse(outcome.mrzChecksumFailed(), "When AI ocr.mrzValid() is null and Java parser validates valid MRZ, mrzChecksumFailed MUST be false");
+        assertEquals("PASS", outcome.status());
+    }
+
+    @Test
+    void riskEngine_mrzChecksumFailedFalse_validationFailedTrue_vizMrzMismatchTrue_noMrzSecurityOverride() {
+        gov.mha.screening.config.AppProperties props = new gov.mha.screening.config.AppProperties(
+                null, null, null, null,
+                new gov.mha.screening.config.AppProperties.Risk(
+                        new gov.mha.screening.config.AppProperties.Risk.Weights(25, 20, 20, 20, 10, 5),
+                        new gov.mha.screening.config.AppProperties.Risk.Thresholds(0.50, 0.55)
+                ),
+                null
+        );
+        gov.mha.screening.risk.RiskEngine re = new gov.mha.screening.risk.RiskEngine(props);
+
+        // mrzChecksumFailed = false, validationFailed = true (due to crossZoneMismatch), vizMrzMismatch = true
+        gov.mha.screening.risk.RiskEngine.Input in = new gov.mha.screening.risk.RiskEngine.Input(
+                0.0, 0.8, true, false, false, false, true, false, false, true, null, false, false, false
+        );
+
+        gov.mha.screening.risk.RiskEngine.RiskAssessment ra = re.assessRisk(in);
+
+        assertFalse(ra.securityOverrideTriggered(), "Security override MUST NOT trigger when mrzChecksumFailed is false");
+        assertNotEquals("MRZ Checksum Checkdigit Validation Failed", ra.securityOverrideReason());
+        assertEquals("MANUAL_REVIEW", ra.decision(), "Score 35.0 (20 val + 15 vizMismatch) should result in MANUAL_REVIEW, NOT hard REJECT");
+        assertEquals(35.0, ra.score(), 0.01);
+    }
+
+    @Test
+    void riskEngine_mrzChecksumFailedTrue_validationFailedTrue_triggersMrzSecurityOverride() {
+        gov.mha.screening.config.AppProperties props = new gov.mha.screening.config.AppProperties(
+                null, null, null, null,
+                new gov.mha.screening.config.AppProperties.Risk(
+                        new gov.mha.screening.config.AppProperties.Risk.Weights(25, 20, 20, 20, 10, 5),
+                        new gov.mha.screening.config.AppProperties.Risk.Thresholds(0.50, 0.55)
+                ),
+                null
+        );
+        gov.mha.screening.risk.RiskEngine re = new gov.mha.screening.risk.RiskEngine(props);
+
+        // mrzChecksumFailed = true, validationFailed = true
+        gov.mha.screening.risk.RiskEngine.Input in = new gov.mha.screening.risk.RiskEngine.Input(
+                0.0, 0.8, true, false, false, false, true, false, false, false, null, false, false, true
+        );
+
+        gov.mha.screening.risk.RiskEngine.RiskAssessment ra = re.assessRisk(in);
+
+        assertTrue(ra.securityOverrideTriggered(), "Security override MUST trigger when mrzChecksumFailed is true");
+        assertEquals("MRZ Checksum Checkdigit Validation Failed", ra.securityOverrideReason());
+        assertEquals("REJECT", ra.decision());
+    }
+
+    @Test
+    void riskEngine_mrzChecksumFailedFalse_validationFailedFalse_noMrzOverride() {
+        gov.mha.screening.config.AppProperties props = new gov.mha.screening.config.AppProperties(
+                null, null, null, null,
+                new gov.mha.screening.config.AppProperties.Risk(
+                        new gov.mha.screening.config.AppProperties.Risk.Weights(25, 20, 20, 20, 10, 5),
+                        new gov.mha.screening.config.AppProperties.Risk.Thresholds(0.50, 0.55)
+                ),
+                null
+        );
+        gov.mha.screening.risk.RiskEngine re = new gov.mha.screening.risk.RiskEngine(props);
+
+        // mrzChecksumFailed = false, validationFailed = false
+        gov.mha.screening.risk.RiskEngine.Input in = new gov.mha.screening.risk.RiskEngine.Input(
+                0.0, 0.8, false, false, false, false, true, false, false, false, null, false, false, false
+        );
+
+        gov.mha.screening.risk.RiskEngine.RiskAssessment ra = re.assessRisk(in);
+
+        assertFalse(ra.securityOverrideTriggered());
+        assertEquals("CLEAR", ra.decision());
+        assertEquals(0.0, ra.score(), 0.01);
+    }
 }
