@@ -299,6 +299,7 @@ export default function Verify() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (busy || ocrLoading) return;
     let targetFile = docFile;
 
     if (!targetFile && docNumber) {
@@ -1101,7 +1102,7 @@ export default function Verify() {
 
         {/* Action Button */}
         <button
-          disabled={(!docFile && !docNumber) || busy}
+          disabled={(!docFile && !docNumber) || busy || ocrLoading}
           type="submit"
           className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold py-4 rounded-2xl shadow-xl shadow-blue-900/40 disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2.5"
         >
@@ -1110,6 +1111,11 @@ export default function Verify() {
               <Loader2 className="w-4.5 h-4.5 animate-spin text-white" />
               <span>Executing Forensic Pipeline…</span>
             </>
+          ) : ocrLoading ? (
+            <>
+              <Loader2 className="w-4.5 h-4.5 animate-spin text-cyan-300" />
+              <span>Real-Time OCR Processing… Please Wait</span>
+            </>
           ) : (
             <>
               <Sparkles className="w-4.5 h-4.5 text-blue-300" />
@@ -1117,6 +1123,13 @@ export default function Verify() {
             </>
           )}
         </button>
+
+        {ocrLoading && (
+          <p className="text-center text-xs font-semibold text-cyan-400 animate-pulse flex items-center justify-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Real-time OCR is still processing. Please wait before starting full screening.</span>
+          </p>
+        )}
       </form>
 
       {/* Inline Results Panel (shown when result is available but navigation didn't occur) */}

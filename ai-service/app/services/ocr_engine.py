@@ -8,10 +8,14 @@ NATIONAL ID != AADHAAR. Aadhaar is one specific document adapter inside the gene
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import html
 import io
 import re
+import threading
 import time
+from collections import OrderedDict
 from datetime import datetime
 from typing import Any
 
@@ -22,11 +26,17 @@ from app.services import mrz as mrz_mod
 _MRZ_LINE = re.compile(r"[A-Z0-9<=]{15,44}")
 _DATE_PATTERNS = (
     "%Y-%m-%d",
-    "%d/%m/%Y",
-    "%m/%d/%Y",
+    "%Y/%m/%d",
+    "%Y.%m.%d",
     "%d-%m-%Y",
+    "%d/%m/%Y",
+    "%d.%m.%Y",
+    "%d %m %Y",
+    "%Y %m %d",
     "%d %b %Y",
     "%d %B %Y",
+    "%b %d %Y",
+    "%B %d %Y",
 )
 
 _ocr_singleton = None
@@ -91,6 +101,12 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
         import numpy as np
 
         img = Image.open(io.BytesIO(data)).convert("RGB")
+        try:
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+
         max_dim = max(img.width, img.height)
         if max_dim > 1200:
             scale = 1200.0 / max_dim
@@ -133,13 +149,11 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
                 if re.search(r"\b[A-Z0-9-]{6,20}\b", joined) and len(texts) >= 4:
                     landmark_hits += 1
 
-
-
                 score = sum(len(t) for _, t, c in res if len(t) >= 4 and c >= 0.4)
                 return landmark_hits, score
 
             hits, score = eval_orientation(result)
-            if hits < 2:
+            if hits < 8 or score < 150:
                 best_res = result
                 best_score = score
                 best_hits = hits
@@ -151,10 +165,7 @@ def _extract_text_from_data(data: bytes) -> tuple[str, float | None, list[dict[s
                         best_hits = rot_hits
                         best_score = rot_score
                         best_res = rot_res
-                        if rot_hits >= 2:
-                            break
                 result = best_res
-
 
             confidences: list[float] = []
             for (box, text, conf) in result:
@@ -189,21 +200,26 @@ def _normalize_date(raw: str) -> str:
     raw = raw.strip()
     if not raw:
         return ""
-    m = re.search(r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b", raw)
-    if m:
-        return m.group(1).replace("/", "-")
-    m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b", raw)
-    if m:
-        raw = m.group(1).replace("/", "-")
-    m = re.search(r"\b(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b", raw)
-    if m:
-        raw = m.group(1)
 
-    for pattern in _DATE_PATTERNS:
-        try:
-            return datetime.strptime(raw, pattern).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
+    cleaned = raw.strip()
+    # Normalize OCR digit 's'/'S' misrecognitions at end of date numbers (e.g. 204s -> 2045)
+    cleaned = re.sub(r"(\b\d{1,2}[-/. ]\d{1,2}[-/. ]\d{3})[sS]\b", r"\g<1>5", cleaned)
+
+    cleaned_dash = re.sub(r"[-/. ]+", "-", cleaned)
+    cleaned_slash = re.sub(r"[-/. ]+", "/", cleaned)
+    cleaned_space = re.sub(r"[-/. ]+", " ", cleaned)
+
+    candidates = [cleaned, cleaned_dash, cleaned_slash, cleaned_space]
+
+    for cand in candidates:
+        for pattern in _DATE_PATTERNS:
+            try:
+                dt = datetime.strptime(cand, pattern)
+                if 1900 <= dt.year <= 2100:
+                    return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
     return ""
 
 
@@ -616,7 +632,8 @@ class GenericNationalIDAdapter:
         "IDENTITY", "CARD", "PASSPORT", "PASSEPORT", "SIGNATURE", "HOLDER", "ADDRESS",
         "DOMICILE", "ANSCHRIFT", "DIRECCION", "AUTHORITY", "ISSUED", "ISSUING", "CODE",
         "MALE", "FEMALE", "SEX", "GENDER", "DOB", "DATE", "BIRTH", "NAISSANCE",
-        "CONTROL", "NUMBER", "POST", "ENTRIES", "EXPIRATION", "CLASS", "TYPE", "ANNOTATION"
+        "CONTROL", "NUMBER", "POST", "ENTRIES", "EXPIRATION", "CLASS", "TYPE", "ANNOTATION",
+        "SCANNED", "OKEN", "SCANNER", "CAMSCANNER", "ADOBE", "WATERMARK", "DOCSCANNER"
     )
 
     def extract(self, text: str, boxes: list[dict[str, Any]], raw_mrz: str | None) -> dict[str, Any]:
@@ -879,7 +896,7 @@ class GenericNationalIDAdapter:
                 continue
             if cleaned_l in ("NUMBER", "CONTROL", "PASSPORT", "DOCUMENT", "SERIAL"):
                 continue
-            if re.match(r"^[A-Z0-9-]{5,20}$", cleaned_l) and sum(1 for c in cleaned_l if c.isdigit()) >= 3 and not re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", cleaned_l):
+            if re.match(r"^[A-Z0-9-]{5,20}$", cleaned_l) and sum(1 for c in cleaned_l if c.isdigit()) >= 3 and not re.search(r"\b\d{1,4}[-/]\d{1,2}[-/]\d{2,4}\b", cleaned_l):
                 return cleaned_l, 0.85
 
         return "", 0.0
@@ -988,10 +1005,13 @@ class GenericNationalIDAdapter:
             up_line = line.strip().upper()
             if any(kw in up_line for kw in ("EXPIRY", "EXPIRES", "VALID UNTIL", "VALIDITY", "ABLAUFDATUM", "CADUCIDAD", "EXPIRATION", "DEXPIRA")):
                 block = " ".join([lines[j].strip() for j in range(i, min(i + 8, len(lines)))])
-                d_matches = re.findall(r"\b(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4})\b", block)
+                block_clean = re.sub(r"(\b\d{1,2}[-/. ]\d{1,2}[-/. ]\d{3})[sS]\b", r"\g<1>5", block)
+                d_matches = re.findall(
+                    r"\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}\s+\d{1,2}\s+\d{4}|\d{4}\s+\d{1,2}\s+\d{1,2})\b",
+                    block_clean,
+                )
                 for dm in d_matches:
-                    clean_dm = dm.strip().replace(" ", "-")
-                    norm = _normalize_date(clean_dm)
+                    norm = _normalize_date(dm)
                     if norm:
                         if int(norm[:4]) >= 2025:
                             return norm, 0.92
@@ -1576,11 +1596,12 @@ def extract_dl_fields(
 
     # 2. DL Number Extraction
     if not dl_number:
-        m_dl = re.search(r"\b([A-Z]{2}[-/\s]?[0-9O]{1,4}[-/\s]?[0-9O]{4}[-/\s]?[0-9O]{5,11})\b", text_upper)
+        m_dl = re.search(r"\b([A-Z]{2}[0-9O]{1,4}[-/\s]?[0-9O]{4}[-/\s]?[0-9O]{5,11})\b", text_upper)
         if m_dl:
             cand_dl = m_dl.group(1).strip()
             if not any(k in cand_dl for k in ("PASSPORT", "CONTROL", "RECEIPT", "APPLICATION", "LICENCE", "LICENSE")):
-                dl_number = cand_dl
+                if not re.search(r"\b\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4}\b", cand_dl):
+                    dl_number = cand_dl
 
     if not dl_number:
         m_lbl = re.search(
@@ -1590,51 +1611,131 @@ def extract_dl_fields(
         if m_lbl:
             cand_dl = m_lbl.group(1).strip()
             if not any(k in cand_dl for k in ("PASSPORT", "RECEIPT", "APPLICATION")):
-                dl_number = cand_dl
+                if not re.search(r"\b\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4}\b", cand_dl):
+                    dl_number = cand_dl
 
     if not dl_number and fields and fields.get("documentNumber"):
-        if not fields.get("documentNumber", "").startswith("P<"):
-            dl_number = fields["documentNumber"]
+        cand_doc = fields.get("documentNumber", "").strip()
+        if not cand_doc.startswith("P<") and not re.search(r"\b\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4}\b", cand_doc):
+            dl_number = cand_doc
+
+    if dl_number and re.search(r"^\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4}$", dl_number):
+        dl_number = None
+
+    if dl_number:
+        if len(dl_number) >= 4 and dl_number[:2].isalpha():
+            dl_number = dl_number[:2] + dl_number[2:4].replace("O", "0") + dl_number[4:]
 
     # 3. Holder Name Extraction
+    dl_noise = (
+        "DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "GOVERNMENT", "DEPARTMENT",
+        "INDIA", "STATE", "SCANNED", "OKEN", "SCANNER", "CAMSCANNER", "ADOBE",
+        "WATERMARK", "DOCSCANNER", "UNION", "MAHARASHTRA", "AUTHORITY"
+    )
     if fields and (fields.get("name") or fields.get("holderName")):
         cand_name = fields.get("name") or fields.get("holderName")
-        if cand_name and not any(k in cand_name.upper() for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "GOVERNMENT", "DEPARTMENT", "INDIA", "STATE")):
+        if cand_name and not any(k in cand_name.upper() for k in dl_noise):
             holder_name = cand_name
 
     if not holder_name:
-        m_name = re.search(r"(?:NAME\s*OF\s*HOLDER|HOLDER\s*NAME|NAME)\s*[:\s|-]*\s*([A-Z\ '.]{3,30})", text_upper)
+        m_name = re.search(r"(?:NAME\s*OF\s*HOLDER|HOLDER\s*NAME|NAME)\s*[:\s|-]*\s*([A-Z\ '.]{3,40})", text_upper)
         if m_name:
             c_name = m_name.group(1).strip()
             c_name = re.split(r"\b(?:S/O|D/O|W/O|SON OF|DAUGHTER OF|WIFE OF)\b", c_name)[0].strip()
-            if len(c_name) >= 3 and not any(k in c_name for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "AUTHORITY", "UNION", "GOVT", "INDIA", "STATE", "ADDRESS", "DOB", "DATE")):
+            if len(c_name) >= 3 and not any(k in c_name for k in dl_noise):
                 holder_name = c_name
+
+    if not holder_name and boxes:
+        for b in boxes:
+            t = b["text"].strip().upper()
+            if t in ("NAME", "NAME:", "HOLDER NAME", "HOLDER NAME:") or t.startswith("NAME"):
+                lbl_cy = b["cy"]
+                cands = [box for box in boxes if box != b and abs(box["cy"] - lbl_cy) < 20 and 5 < box["xmin"] - b["xmax"] < 300]
+                if not cands:
+                    cands = [box for box in boxes if box != b and 2 < box["ymin"] - b["ymax"] < 45 and abs(box["xmin"] - b["xmin"]) < 80]
+                for c in cands:
+                    cand_v = c["text"].strip(" :|-").upper()
+                    cand_v = re.split(r"\b(?:S/O|D/O|W/O|SON OF|DAUGHTER OF|WIFE OF)\b", cand_v)[0].strip()
+                    if len(cand_v) >= 3 and not any(k in cand_v for k in dl_noise) and not re.search(r"\d", cand_v):
+                        holder_name = cand_v
+                        break
 
     # 4. Date of Birth
     if fields and fields.get("dateOfBirth"):
         dob = fields["dateOfBirth"]
-    else:
-        m_dob = re.search(r"(?:DOB|DATE\s*OF\s*BIRTH|D\.O\.B|BIRTH\s*DATE)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+
+    if not dob:
+        m_dob = re.search(
+            r"(?:DOB|DATE\s*OF\s*BIRTH|D\.O\.B|BIRTH\s*DATE)\s*[:\s|-]*\s*(\d{1,4}[-/.\s]\d{1,2}[-/.\s]\d{2,4})",
+            text_upper,
+        )
         if m_dob:
-            dob = _normalize_date(m_dob.group(1))
+            raw_d = m_dob.group(1).strip().replace(" ", "-").replace(".", "-")
+            dob = _normalize_date(raw_d)
+
+    if not dob and boxes:
+        for b in boxes:
+            t = b["text"].strip().upper()
+            if any(k in t for k in ("DOB", "DATE OF BIRTH", "BIRTH DATE")):
+                lbl_cy = b["cy"]
+                cands = [
+                    box for box in boxes
+                    if box != b and (abs(box["cy"] - lbl_cy) < 20 or 2 < box["ymin"] - b["ymax"] < 45)
+                ]
+                for c in cands:
+                    raw_c = c["text"].strip().replace(".", "-").replace(" ", "-")
+                    norm = _normalize_date(raw_c)
+                    if norm:
+                        dob = norm
+                        break
 
     # 5. Issue Date
     if fields and fields.get("issueDate"):
         issue_date = fields["issueDate"]
-    else:
-        m_iss = re.search(r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUE|VALID\s*FROM|ISSUED\s*ON|DOI)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+
+    if not issue_date:
+        m_iss = re.search(
+            r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUE|VALID\s*FROM|ISSUED\s*ON|DOI|DATE\s*OF\s*FIRST\s*ISSUE)\s*[:\s|-]*\s*(\d{1,4}[-/.\s]\d{1,2}[-/.\s]\d{2,4})",
+            text_upper,
+        )
         if m_iss:
-            issue_date = _normalize_date(m_iss.group(1))
+            raw_i = m_iss.group(1).strip().replace(" ", "-").replace(".", "-")
+            issue_date = _normalize_date(raw_i)
 
     # 6. Expiry / Validity Date (CRITICAL REGRESSION REQUIREMENT)
     # Expiry MUST NOT be filled with issue_date. It stays None if no explicit expiry match is found!
-    m_exp = re.search(r"(?:VALID\s*TILL|VALID\s*UPTO|VALID\s*UNTIL|EXPIRY\s*DATE|EXPIRY|VALIDITY)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+    m_exp = re.search(
+        r"(?:VALID\s*TILL|VALID\s*UPTO|VAL\s*UPTO|VALID\s*UNTIL|EXPIRY\s*DATE|EXPIRY|VALIDITY(?:\s*\([^)]+\))?)\s*[:\s|-]*\s*(\d{1,4}[-/.\s]\d{1,2}[-/.\s]\d{2,4})",
+        text_upper,
+    )
     if m_exp:
-        parsed_exp = _normalize_date(m_exp.group(1))
+        raw_e = m_exp.group(1).strip().replace(" ", "-").replace(".", "-")
+        parsed_exp = _normalize_date(raw_e)
         if parsed_exp and parsed_exp != issue_date:
             expiry_date = parsed_exp
-    elif fields and fields.get("expiryDate") and fields.get("expiryDate") != issue_date:
-        expiry_date = fields["expiryDate"]
+
+    if not expiry_date:
+        lines_list = text_upper.splitlines()
+        for i, line in enumerate(lines_list):
+            if any(kw in line for kw in ("VALIDITY", "VALID TILL", "VALID UPTO", "EXPIRY", "VAL UPTO")):
+                block = " ".join(lines_list[i : min(i + 6, len(lines_list))])
+                block_clean = re.sub(r"(\b\d{1,2}[-/. ]\d{1,2}[-/. ]\d{3})[sS]\b", r"\g<1>5", block)
+                d_matches = re.findall(
+                    r"\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}\s+\d{1,2}\s+\d{4}|\d{4}\s+\d{1,2}\s+\d{1,2})\b",
+                    block_clean,
+                )
+                for dm in d_matches:
+                    norm = _normalize_date(dm)
+                    if norm and norm != issue_date:
+                        expiry_date = norm
+                        break
+                if expiry_date:
+                    break
+
+    if not expiry_date and fields and fields.get("expiryDate") and fields.get("expiryDate") != issue_date:
+        cand_exp = _normalize_date(fields["expiryDate"])
+        if cand_exp and cand_exp != issue_date:
+            expiry_date = cand_exp
 
     # 7. State & Issuing Authority
     indian_states = {
@@ -2198,10 +2299,94 @@ def extract_permit_fields(
 
 
 # ==============================================================================
-# MAIN ENTRYPOINT
+# MAIN ENTRYPOINT & CACHING LAYER
 # ==============================================================================
 
+_OCR_CACHE_LOCK = threading.Lock()
+_OCR_CACHE_MAX_SIZE = 64
+_OCR_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_OCR_IN_FLIGHT_LOCKS: dict[str, threading.Lock()] = {}
+_OCR_CACHE_HITS = 0
+
+
+def _clear_ocr_cache() -> None:
+    global _OCR_CACHE_HITS
+    with _OCR_CACHE_LOCK:
+        _OCR_CACHE.clear()
+        _OCR_IN_FLIGHT_LOCKS.clear()
+        _OCR_CACHE_HITS = 0
+
+
+def _get_cache_hits() -> int:
+    with _OCR_CACHE_LOCK:
+        return _OCR_CACHE_HITS
+
+
+def _get_cache_size() -> int:
+    with _OCR_CACHE_LOCK:
+        return len(_OCR_CACHE)
+
+
+def _is_valid_ocr_result(res: dict[str, Any]) -> bool:
+    if not isinstance(res, dict):
+        return False
+    fields = res.get("fields") or {}
+    text = res.get("visualZone", {}).get("rawText", "") or ""
+    notes = res.get("notes") or []
+    if not text and not fields and any("No readable text detected" in str(n) for n in notes):
+        return False
+    return True
+
+
 def extract(data: bytes) -> dict[str, Any]:
+    global _OCR_CACHE_HITS
+
+    if not data:
+        return _raw_extract(data)
+
+    hash_key = hashlib.sha256(data).hexdigest()
+
+    # 1. Fast lookup under cache lock
+    with _OCR_CACHE_LOCK:
+        if hash_key in _OCR_CACHE:
+            _OCR_CACHE.move_to_end(hash_key)
+            _OCR_CACHE_HITS += 1
+            return copy.deepcopy(_OCR_CACHE[hash_key])
+
+        # Get or create per-hash lock for in-flight request deduplication
+        if hash_key not in _OCR_IN_FLIGHT_LOCKS:
+            _OCR_IN_FLIGHT_LOCKS[hash_key] = threading.Lock()
+        in_flight_lock = _OCR_IN_FLIGHT_LOCKS[hash_key]
+
+    # 2. Acquire per-hash lock to deduplicate concurrent extractions
+    with in_flight_lock:
+        # Double-check cache inside in-flight lock
+        with _OCR_CACHE_LOCK:
+            if hash_key in _OCR_CACHE:
+                _OCR_CACHE.move_to_end(hash_key)
+                _OCR_CACHE_HITS += 1
+                return copy.deepcopy(_OCR_CACHE[hash_key])
+
+        # Perform actual expensive extraction
+        result = _raw_extract(data)
+
+        # Cache if extraction succeeded
+        if _is_valid_ocr_result(result):
+            with _OCR_CACHE_LOCK:
+                _OCR_CACHE[hash_key] = copy.deepcopy(result)
+                _OCR_CACHE.move_to_end(hash_key)
+                if len(_OCR_CACHE) > _OCR_CACHE_MAX_SIZE:
+                    _OCR_CACHE.popitem(last=False)
+
+        # Clean up per-hash lock
+        with _OCR_CACHE_LOCK:
+            if hash_key in _OCR_IN_FLIGHT_LOCKS:
+                del _OCR_IN_FLIGHT_LOCKS[hash_key]
+
+        return result
+
+
+def _raw_extract(data: bytes) -> dict[str, Any]:
     start_time = time.time()
     notes: list[str] = []
 
@@ -2397,6 +2582,47 @@ def extract(data: bytes) -> dict[str, Any]:
             field_states["expiryDate"] = "DETECTED"
         if visa_res.get("issuingCountry"):
             fields["issuingCountry"] = visa_res["issuingCountry"]
+    elif autodetected_type == "DRIVING_LICENCE" or doc_category == "DRIVING_LICENCE" or doc_subtype == "DRIVING_LICENCE":
+        doc_category = "DRIVING_LICENCE"
+        doc_subtype = "DRIVING_LICENCE"
+        doc_type = "DRIVING_LICENCE"
+        applicable_fields, applicable_checks = _get_document_capabilities(
+            "DRIVING_LICENCE",
+            "DRIVING_LICENCE",
+            mrz_detected=parsed_mrz is not None,
+            qr_detected=qr_info["qrDetected"],
+            barcode_detected=barcode_info["barcodeDetected"],
+        )
+        if dl_res.get("dlNumber"):
+            fields["documentNumber"] = dl_res["dlNumber"]
+            fields["dlNumber"] = dl_res["dlNumber"]
+            field_confidences["documentNumber"] = 0.95
+            field_confidences["dlNumber"] = 0.95
+            field_states["documentNumber"] = "DETECTED"
+            field_states["dlNumber"] = "DETECTED"
+        if dl_res.get("holderName"):
+            fields["name"] = dl_res["holderName"]
+            fields["holderName"] = dl_res["holderName"]
+            field_confidences["name"] = 0.95
+            field_confidences["holderName"] = 0.95
+            field_states["name"] = "DETECTED"
+            field_states["holderName"] = "DETECTED"
+        if dl_res.get("dateOfBirth"):
+            fields["dateOfBirth"] = dl_res["dateOfBirth"]
+            field_confidences["dateOfBirth"] = 0.95
+            field_states["dateOfBirth"] = "DETECTED"
+        if dl_res.get("issueDate"):
+            fields["issueDate"] = dl_res["issueDate"]
+            field_confidences["issueDate"] = 0.95
+            field_states["issueDate"] = "DETECTED"
+        if dl_res.get("expiryDate"):
+            fields["expiryDate"] = dl_res["expiryDate"]
+            field_confidences["expiryDate"] = 0.95
+            field_states["expiryDate"] = "DETECTED"
+        if dl_res.get("state"):
+            fields["state"] = dl_res["state"]
+        if dl_res.get("issuingAuthority"):
+            fields["issuingAuthority"] = dl_res["issuingAuthority"]
 
     visual_zone_payload = {
         **fields,
