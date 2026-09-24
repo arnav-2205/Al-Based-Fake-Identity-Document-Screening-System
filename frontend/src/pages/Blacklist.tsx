@@ -1,6 +1,6 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { api, BlacklistEntry } from '../api/client';
-import { ShieldBan, Search, Plus, Trash2, X, AlertCircle } from 'lucide-react';
+import { ShieldBan, Search, Plus, Trash2, X, AlertCircle, ShieldAlert } from 'lucide-react';
 
 export default function Blacklist() {
   const [rows, setRows] = useState<BlacklistEntry[]>([]);
@@ -76,22 +76,24 @@ export default function Blacklist() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       {/* Title Header */}
-      <div className="bg-slate-900/60 border border-slate-800/80 p-8 rounded-3xl shadow-xl backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+      <div className="card-defense p-5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-extrabold text-white flex items-center gap-3 tracking-tight">
-            <ShieldBan className="w-7 h-7 text-amber-400" />
-            <span>INTERPOL &amp; Watchlist Repository</span>
-          </h1>
-          <p className="text-xs text-slate-400 font-normal">
-            Active watchlist records for blacklisted passports, visas, and flagged identities.
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-amber-600" />
+            <h1 className="text-base font-bold text-slate-900 font-display uppercase tracking-wide">
+              Surveillance Watchlist &amp; INTERPOL Red Notices
+            </h1>
+          </div>
+          <p className="text-xs text-slate-500 font-mono">
+            Active border interception notices for fraudulent identities, stolen credentials, and restricted travelers.
           </p>
         </div>
 
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold px-5 py-3 rounded-2xl shadow-xl shadow-blue-900/40 transition-all"
+          className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-mono font-bold px-4 py-2 rounded-md shadow-sm transition-all"
         >
           <Plus className="w-4 h-4" />
           <span>Add Watchlist Record</span>
@@ -99,12 +101,12 @@ export default function Blacklist() {
       </div>
 
       {/* Filters Bar */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="w-4.5 h-4.5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
-            className="w-full bg-slate-900/60 border border-slate-800/80 focus:border-blue-500 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-100 placeholder-slate-500 outline-none transition-all"
-            placeholder="Search by Document #, Name, or Watchlist Reason…"
+            className="w-full bg-white border border-slate-200 focus:border-sky-500 rounded-md pl-9 pr-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-400 outline-none transition-all shadow-2xs"
+            placeholder="Search by Document #, Full Name, or Intercept Reason…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -113,62 +115,62 @@ export default function Blacklist() {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-slate-900/60 border border-slate-800/80 text-xs text-slate-200 font-bold px-4 py-3 rounded-2xl outline-none"
+          className="bg-white border border-slate-200 text-xs font-mono text-slate-800 font-bold px-3 py-2 rounded-md shadow-2xs outline-none"
         >
-          <option value="ALL" className="bg-slate-900">ALL TYPES</option>
-          <option value="PASSPORT" className="bg-slate-900">PASSPORT</option>
-          <option value="VISA" className="bg-slate-900">VISA</option>
-          <option value="NATIONAL_ID" className="bg-slate-900">NATIONAL ID</option>
+          <option value="ALL">ALL TYPES</option>
+          <option value="PASSPORT">PASSPORT</option>
+          <option value="VISA">VISA</option>
+          <option value="NATIONAL_ID">NATIONAL ID</option>
         </select>
       </div>
 
       {err && (
-        <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium">
-          <AlertCircle className="w-4.5 h-4.5" />
+        <div className="flex items-center gap-2 p-3 rounded bg-rose-50 border border-rose-200 text-rose-800 text-xs font-mono">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
           <span>{err}</span>
         </div>
       )}
 
       {/* Table */}
-      <div className="bg-slate-900/60 border border-slate-800/80 rounded-3xl shadow-xl overflow-hidden backdrop-blur-md">
+      <div className="card-defense rounded-lg overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-xs text-slate-400">Loading watchlist entries…</div>
+          <div className="p-12 text-center text-xs font-mono text-slate-400">Loading watchlist entries…</div>
         ) : filtered.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-400">No watchlist entries found.</div>
+          <div className="p-12 text-center text-xs font-mono text-slate-400">No watchlist entries found.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800/80">
+            <table className="w-full text-xs font-mono text-left">
+              <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200 text-[11px]">
                 <tr>
-                  <th className="py-4 px-6">Document #</th>
-                  <th className="py-4 px-6">Type</th>
-                  <th className="py-4 px-6">Subject Name</th>
-                  <th className="py-4 px-6">DOB</th>
-                  <th className="py-4 px-6">Reason / Alert Note</th>
-                  <th className="py-4 px-6">Status</th>
-                  <th className="py-4 px-6 text-right">Action</th>
+                  <th className="py-2.5 px-4">DOCUMENT #</th>
+                  <th className="py-2.5 px-4">TYPE</th>
+                  <th className="py-2.5 px-4">SUBJECT NAME</th>
+                  <th className="py-2.5 px-4">DOB</th>
+                  <th className="py-2.5 px-4">REASON / ALERT NOTE</th>
+                  <th className="py-2.5 px-4">STATUS</th>
+                  <th className="py-2.5 px-4 text-right">ACTION</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
+              <tbody className="divide-y divide-slate-100 text-[11px]">
                 {filtered.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-800/40 transition-all">
-                    <td className="py-4 px-6 font-mono font-bold text-amber-400">{r.documentNumber}</td>
-                    <td className="py-4 px-6 text-slate-400 font-medium">{r.documentType}</td>
-                    <td className="py-4 px-6 font-bold text-slate-100">{r.name}</td>
-                    <td className="py-4 px-6 text-slate-400 font-mono">{r.dateOfBirth}</td>
-                    <td className="py-4 px-6 text-slate-300 max-w-xs">{r.reason}</td>
-                    <td className="py-4 px-6">
-                      <span className="bg-red-500/10 text-red-400 border border-red-500/20 px-2.5 py-0.5 rounded-full font-bold text-[10px] tracking-wider">
+                  <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-2.5 px-4 font-bold text-amber-700">{r.documentNumber}</td>
+                    <td className="py-2.5 px-4 text-slate-500 font-medium">{r.documentType}</td>
+                    <td className="py-2.5 px-4 font-bold text-slate-800">{r.name}</td>
+                    <td className="py-2.5 px-4 text-slate-500">{r.dateOfBirth}</td>
+                    <td className="py-2.5 px-4 text-slate-700 max-w-xs truncate">{r.reason}</td>
+                    <td className="py-2.5 px-4">
+                      <span className="bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider">
                         {r.status}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-right">
+                    <td className="py-2.5 px-4 text-right">
                       <button
                         onClick={() => handleDelete(r.id)}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
                         title="Remove entry"
                       >
-                        <Trash2 className="w-4.5 h-4.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
@@ -181,94 +183,105 @@ export default function Blacklist() {
 
       {/* Add Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-6">
-          <div className="bg-slate-900 border border-slate-800/80 p-8 rounded-3xl max-w-lg w-full shadow-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2.5">
-                <ShieldBan className="w-6 h-6 text-amber-400" />
-                <span>Add Watchlist Record</span>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="card-defense p-6 rounded-xl max-w-lg w-full shadow-2xl space-y-4 font-mono">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <ShieldBan className="w-5 h-5 text-amber-600" />
+                <span>Add Surveillance Watchlist Record</span>
               </h3>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-200">
-                <X className="w-5 h-5" />
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAdd} className="space-y-4">
+            <form onSubmit={handleAdd} className="space-y-3 text-xs">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1 uppercase tracking-wider">
                   Document Number
                 </label>
                 <input
                   required
-                  className="w-full bg-slate-950 border border-slate-800/80 rounded-2xl px-4 py-3 text-xs text-slate-100 outline-none focus:border-blue-500 transition-all"
-                  placeholder="e.g. P1234567"
                   value={docNum}
                   onChange={(e) => setDocNum(e.target.value)}
+                  placeholder="e.g. Z9988776"
+                  className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-900 outline-none focus:border-sky-500"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
-                    Type
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1 uppercase tracking-wider">
+                    Document Type
                   </label>
                   <select
                     value={docType}
                     onChange={(e) => setDocType(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800/80 rounded-2xl px-4 py-3 text-xs text-slate-100 outline-none"
+                    className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-900 outline-none"
                   >
-                    <option value="PASSPORT">PASSPORT</option>
-                    <option value="VISA">VISA</option>
-                    <option value="NATIONAL_ID">NATIONAL ID</option>
+                    <option value="PASSPORT">Passport</option>
+                    <option value="VISA">Visa</option>
+                    <option value="NATIONAL_ID">National ID</option>
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1 uppercase tracking-wider">
                     Date of Birth
                   </label>
                   <input
                     type="date"
-                    className="w-full bg-slate-950 border border-slate-800/80 rounded-2xl px-4 py-3 text-xs text-slate-100 outline-none"
+                    required
                     value={dob}
                     onChange={(e) => setDob(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-900 outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1 uppercase tracking-wider">
                   Subject Full Name
                 </label>
                 <input
                   required
-                  className="w-full bg-slate-950 border border-slate-800/80 rounded-2xl px-4 py-3 text-xs text-slate-100 outline-none focus:border-blue-500 transition-all"
-                  placeholder="e.g. John Doe"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. JOHN FICTITIOUS"
+                  className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-900 outline-none focus:border-sky-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
-                  Watchlist Reason / INTERPOL Notice
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1 uppercase tracking-wider">
+                  Alert Reason / Advisory Details
                 </label>
                 <textarea
                   required
                   rows={3}
-                  className="w-full bg-slate-950 border border-slate-800/80 rounded-2xl px-4 py-3 text-xs text-slate-100 outline-none focus:border-blue-500 transition-all"
-                  placeholder="e.g. INTERPOL Red Notice — Identity fraud suspect"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
+                  placeholder="Reason for flagging: Red Notice, Impersonation risk, Revoked passport..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-900 outline-none focus:border-sky-500"
                 />
               </div>
 
-              <button
-                disabled={busyAdd}
-                type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3.5 rounded-2xl text-xs shadow-xl shadow-blue-900/40 transition-all"
-              >
-                {busyAdd ? 'Saving Entry…' : 'Add to Watchlist Repository'}
-              </button>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-3 py-1.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busyAdd}
+                  className="px-4 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-bold transition-colors disabled:opacity-50"
+                >
+                  {busyAdd ? 'Recording…' : 'Save Watchlist Entry'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

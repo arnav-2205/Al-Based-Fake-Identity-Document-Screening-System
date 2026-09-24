@@ -6,6 +6,7 @@ Combines:
   4. Digital Forensics & EXIF Metadata Inspection
 """
 import io
+import sys
 import base64
 import cv2
 import torch
@@ -18,6 +19,10 @@ from typing import Dict, Any, Tuple, Optional
 from ml.inference.copy_move import detect_copy_move, detect_font_inconsistency
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+_AI_SERVICE_DIR = BASE_DIR.parent / "ai-service"
+if str(_AI_SERVICE_DIR) not in sys.path:
+    sys.path.insert(0, str(_AI_SERVICE_DIR))
+
 CKPT_PATH = BASE_DIR / "checkpoints" / "tampering" / "best_model.pt"
 SIDTD_CKPT_PATH = BASE_DIR / "checkpoints" / "tampering" / "sidtd_efficientnet_b3.pth"
 

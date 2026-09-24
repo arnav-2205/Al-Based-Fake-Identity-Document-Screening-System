@@ -27,11 +27,11 @@ import {
   Activity,
   CheckCircle2,
   Clock,
-  Sparkles,
   Radio,
-  Play,
-  Pause,
   RefreshCw,
+  Database,
+  Cpu,
+  Lock,
 } from 'lucide-react';
 
 interface StatsData {
@@ -70,7 +70,6 @@ export default function Dashboard() {
     avgTamperScore: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [liveStreamActive, setLiveStreamActive] = useState(true);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
   const fetchLiveData = async () => {
@@ -83,15 +82,23 @@ export default function Dashboard() {
       const dataList = resList.data || [];
       setList(dataList);
 
-      const realLogs: ActivityLog[] = dataList.slice(0, 7).map((v) => ({
-        id: String(v.verificationId),
-        time: v.createdAt ? new Date(v.createdAt).toLocaleTimeString() : '—',
-        checkpoint: 'ICP-BORDER-01',
-        docNum: v.extracted?.passportNumber || (v.extracted?.visualZone?.documentNumber as string) || `DOC-${v.documentId}`,
-        verdict: v.finalResult || 'CLEAR',
-        riskLevel: v.riskLevel || 'LOW',
-      }));
-      setLogs(realLogs);
+      // Only build activity logs if there is REAL data in the database
+      if (dataList.length > 0) {
+        const realLogs: ActivityLog[] = dataList.slice(0, 8).map((v) => ({
+          id: String(v.verificationId),
+          time: v.createdAt ? new Date(v.createdAt).toLocaleTimeString() : '—',
+          checkpoint: 'ICP-ATTARI-04',
+          docNum:
+            v.extracted?.passportNumber ||
+            (v.extracted?.visualZone?.documentNumber as string) ||
+            `DOC-${v.documentId}`,
+          verdict: v.finalResult || 'CLEAR',
+          riskLevel: v.riskLevel || 'LOW',
+        }));
+        setLogs(realLogs);
+      } else {
+        setLogs([]);
+      }
 
       if (resStats.data) {
         setStats(resStats.data);
@@ -105,7 +112,7 @@ export default function Dashboard() {
           manualReviewCount: dataList.filter((v) => v.finalResult === 'MANUAL_REVIEW').length,
           rejectCount: dataList.filter((v) => v.finalResult === 'REJECT').length,
           blacklistHits: dataList.filter((v) => v.blacklistStatus === 'HIT').length,
-          avgTamperScore: 0.14,
+          avgTamperScore: 0,
         });
       }
     } catch (e) {
@@ -117,175 +124,162 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchLiveData();
-    const interval = setInterval(fetchLiveData, 3500);
+    const interval = setInterval(fetchLiveData, 4000);
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-refresh statistics from database without creating mock inspection records
-  useEffect(() => {
-    if (!liveStreamActive) return;
-
-    const refreshInterval = setInterval(() => {
-      fetchLiveData();
-    }, 3500);
-
-    return () => clearInterval(refreshInterval);
-  }, [liveStreamActive]);
-
   const pieData = [
-    { name: 'CLEAR', value: stats.clearCount || 1, color: '#10b981' },
-    { name: 'MANUAL REVIEW', value: stats.manualReviewCount || 1, color: '#f59e0b' },
-    { name: 'REJECT', value: stats.rejectCount || 1, color: '#ef4444' },
+    { name: 'CLEAR', value: stats.clearCount, color: '#059669' },
+    { name: 'MANUAL REVIEW', value: stats.manualReviewCount, color: '#D97706' },
+    { name: 'REJECT', value: stats.rejectCount, color: '#DC2626' },
   ];
 
   const barData = [
-    { name: 'LOW RISK', count: stats.lowRiskCount || 0, fill: '#10b981' },
-    { name: 'MEDIUM RISK', count: stats.mediumRiskCount || 0, fill: '#f59e0b' },
-    { name: 'HIGH RISK', count: stats.highRiskCount || 0, fill: '#ef4444' },
+    { name: 'LOW RISK', count: stats.lowRiskCount, fill: '#059669' },
+    { name: 'MEDIUM RISK', count: stats.mediumRiskCount, fill: '#D97706' },
+    { name: 'HIGH RISK', count: stats.highRiskCount, fill: '#DC2626' },
   ];
 
   const trendData = [
-    { time: '08:00', total: Math.max(1, stats.totalScreened - 12), high: 1 },
-    { time: '10:00', total: Math.max(2, stats.totalScreened - 8), high: 2 },
-    { time: '12:00', total: Math.max(3, stats.totalScreened - 4), high: stats.highRiskCount },
-    { time: 'NOW', total: stats.totalScreened, high: stats.highRiskCount },
+    { time: '08:00', total: stats.totalScreened > 0 ? Math.max(0, stats.totalScreened - 10) : 0 },
+    { time: '11:00', total: stats.totalScreened > 0 ? Math.max(0, stats.totalScreened - 5) : 0 },
+    { time: '14:00', total: stats.totalScreened > 0 ? Math.max(0, stats.totalScreened - 2) : 0 },
+    { time: 'NOW', total: stats.totalScreened },
   ];
 
   return (
-    <div className="space-y-8">
-      {/* Spacious Hero Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-blue-950 border border-slate-800/80 p-8 rounded-3xl shadow-2xl relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="space-y-2 relative z-10 max-w-2xl">
+    <div className="space-y-5 font-sans">
+      {/* Top Banner (Command Canopy style) */}
+      <div className="bg-[#0A192F] border border-[#1E2E4A] p-6 rounded-xl shadow-lg relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6 text-white">
+        <div className="space-y-2 relative z-10">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-extrabold text-white tracking-tight">Border Screening Command Center</h1>
-            <span className="inline-flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 font-mono text-[11px] font-bold px-3 py-1 rounded-full border border-emerald-500/20">
-              <Radio className="w-3.5 h-3.5 animate-ping text-emerald-400" />
-              LIVE DATA STREAM
+            <h1 className="text-xl sm:text-2xl font-bold font-display uppercase tracking-wide">
+              Border Screening Command Telemetry
+            </h1>
+            <span className="inline-flex items-center gap-1.5 bg-sky-950 text-sky-300 font-semibold text-xs px-3 py-1 rounded-full border border-sky-800">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 live-dot-pulse"></span>
+              LIVE STATION FEED
             </span>
           </div>
-          <p className="text-sm text-slate-400 leading-relaxed font-normal">
-            Real-time ICAO 9303 MRZ OCR, Error Level Analysis (ELA), Biometric Face Correlation &amp; SHA-256 Blockchain Provenance.
+          <p className="text-sm text-slate-300 font-normal max-w-3xl leading-relaxed">
+            Station ICP-ATTARI · Lane 04 · Real-time ICAO 9303 MRZ verification, neural tamper detection, biometric face correlation &amp; blockchain ledger custody.
           </p>
         </div>
 
-        <div className="flex items-center gap-3.5 relative z-10 flex-wrap">
-          <button
-            onClick={() => setLiveStreamActive(!liveStreamActive)}
-            className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl text-xs font-bold transition-all border shadow-lg ${
-              liveStreamActive
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 shadow-emerald-950/20'
-                : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white'
-            }`}
-          >
-            {liveStreamActive ? (
-              <>
-                <Pause className="w-4 h-4 text-emerald-400" />
-                <span>Simulated Traffic: ON</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 text-slate-400" />
-                <span>Simulated Traffic: OFF</span>
-              </>
-            )}
-          </button>
-
+        <div className="flex items-center gap-3 relative z-10 flex-wrap">
           <button
             onClick={() => {
               setLoading(true);
               fetchLiveData();
             }}
-            className="p-3 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 rounded-2xl border border-slate-700/80 transition-all"
-            title="Refresh Live Data"
+            className="p-2.5 bg-slate-900 border border-slate-700 hover:border-slate-600 text-slate-300 rounded-md transition-colors"
+            title="Refresh Live Station Data"
           >
-            <RefreshCw className={`w-4.5 h-4.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
           <button
             onClick={() => nav('/verify')}
-            className="flex items-center gap-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold px-5 py-3 rounded-2xl shadow-xl shadow-blue-900/40 transition-all"
+            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-md shadow-sm transition-all"
           >
-            <ScanLine className="w-4.5 h-4.5" />
-            <span>New Screening</span>
+            <ScanLine className="w-4 h-4" />
+            <span>Launch Lane 04 Screening</span>
           </button>
         </div>
       </div>
 
-      {/* Spacious KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-3 relative overflow-hidden backdrop-blur-md">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Total Screened</span>
-            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-              <FileSearch className="w-5 h-5" />
+      {/* KPI Cards Grid from Sentinel Design Tokens */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Metric 1 */}
+        <div className="card-defense p-4 rounded-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-600 text-xs font-bold uppercase tracking-wider">
+            <span>Total Travelers Screened</span>
+            <div className="p-2 rounded bg-sky-50 text-sky-700">
+              <FileSearch className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-4xl font-extrabold text-white tracking-tight">{stats.totalScreened}</div>
-          <div className="text-xs text-slate-400 flex items-center gap-1.5 font-medium pt-1 border-t border-slate-800/60">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Auto-updating live database</span>
+          <div className="text-3xl font-display font-bold text-slate-900 t-nums">
+            {stats.totalScreened}
+          </div>
+          <div className="text-xs text-slate-500 flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Real-time ICP border flow</span>
           </div>
         </div>
 
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-3 backdrop-blur-md">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>High Risk Flagged</span>
-            <div className="p-2 rounded-xl bg-red-500/10 text-red-400">
-              <ShieldAlert className="w-5 h-5" />
+        {/* Metric 2 */}
+        <div className="card-defense p-4 rounded-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-600 text-xs font-bold uppercase tracking-wider">
+            <span>High Risk / Detained</span>
+            <div className="p-2 rounded bg-rose-50 text-rose-700">
+              <ShieldAlert className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-4xl font-extrabold text-red-400 tracking-tight">{stats.highRiskCount}</div>
-          <div className="text-xs text-slate-400 pt-1 border-t border-slate-800/60">Requires secondary detention</div>
+          <div className="text-3xl font-display font-bold text-rose-600 t-nums">
+            {stats.highRiskCount}
+          </div>
+          <div className="text-xs text-slate-500 pt-1.5 border-t border-slate-100">
+            Secondary forensic quarantine
+          </div>
         </div>
 
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-3 backdrop-blur-md">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Watchlist Matches</span>
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-              <ShieldBan className="w-5 h-5" />
+        {/* Metric 3 */}
+        <div className="card-defense p-4 rounded-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-600 text-xs font-bold uppercase tracking-wider">
+            <span>Watchlist &amp; Interpol Hits</span>
+            <div className="p-2 rounded bg-amber-50 text-amber-700">
+              <ShieldBan className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-4xl font-extrabold text-amber-400 tracking-tight">{stats.blacklistHits}</div>
-          <div className="text-xs text-slate-400 pt-1 border-t border-slate-800/60">INTERPOL &amp; Watchlist Hits</div>
+          <div className="text-3xl font-display font-bold text-amber-600 t-nums">
+            {stats.blacklistHits}
+          </div>
+          <div className="text-xs text-slate-500 pt-1.5 border-t border-slate-100">
+            Active surveillance alerts
+          </div>
         </div>
 
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-3 backdrop-blur-md">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Ledger Integrity</span>
-            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-              <ShieldCheck className="w-5 h-5" />
+        {/* Metric 4 */}
+        <div className="card-defense p-4 rounded-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-600 text-xs font-bold uppercase tracking-wider">
+            <span>Blockchain Custody Synced</span>
+            <div className="p-2 rounded bg-emerald-50 text-emerald-700">
+              <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-4xl font-extrabold text-emerald-400 tracking-tight">100%</div>
-          <div className="text-xs text-slate-400 flex items-center gap-1.5 font-medium pt-1 border-t border-slate-800/60">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>SHA-256 Immutable</span>
+          <div className="text-3xl font-display font-bold text-emerald-700 t-nums">
+            100%
+          </div>
+          <div className="text-xs text-slate-500 flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>SHA-256 Provenance Active</span>
           </div>
         </div>
       </div>
 
-      {/* Spacious Live Ticker Bar */}
+      {/* Live Checkpoint Stream Strip (renders if logs exist) */}
       {logs.length > 0 && (
-        <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-3xl shadow-xl flex items-center gap-4 text-xs backdrop-blur-md">
-          <div className="flex items-center gap-2 font-bold text-blue-400 uppercase tracking-wider flex-shrink-0 bg-blue-500/10 px-3.5 py-1.5 rounded-xl border border-blue-500/20">
-            <Activity className="w-4 h-4 animate-pulse" />
-            <span>Live Checkpoint Stream</span>
+        <div className="card-defense p-3 rounded-lg flex items-center gap-3 text-xs overflow-hidden">
+          <div className="flex items-center gap-1.5 text-sky-800 font-bold uppercase tracking-wider flex-shrink-0 bg-sky-50 px-3 py-1 rounded border border-sky-200">
+            <Activity className="w-3.5 h-3.5 animate-pulse text-sky-600" />
+            <span>Live Stream</span>
           </div>
-          <div className="flex items-center gap-4 text-slate-300 font-mono flex-1 overflow-x-auto whitespace-nowrap scrollbar-none">
+          <div className="flex items-center gap-3 text-slate-700 flex-1 overflow-x-auto whitespace-nowrap">
             {logs.map((log) => (
-              <div key={log.id} className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800/80">
-                <span className="text-slate-500">{log.time}</span>
-                <span className="text-slate-200 font-bold">{log.checkpoint}:</span>
-                <span className="text-cyan-400 font-semibold">{log.docNum}</span>
+              <div
+                key={log.id}
+                className="flex items-center gap-2 bg-slate-50 px-2.5 py-1 rounded border border-slate-200 font-medium"
+              >
+                <span className="text-slate-400 font-mono text-[11px]">{log.time}</span>
+                <span className="text-slate-900 font-bold">{log.checkpoint}</span>
+                <span className="text-sky-700 font-mono font-bold">{log.docNum}</span>
                 <span
-                  className={`font-bold px-2 py-0.5 rounded-md text-[10px] ${
+                  className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
                     log.verdict === 'CLEAR'
-                      ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                      ? 'text-emerald-800 bg-emerald-50 border border-emerald-200'
                       : log.verdict === 'MANUAL_REVIEW'
-                      ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                      : 'text-red-400 bg-red-500/10 border border-red-500/20'
+                      ? 'text-amber-800 bg-amber-50 border border-amber-200'
+                      : 'text-rose-800 bg-rose-50 border border-rose-200'
                   }`}
                 >
                   {log.verdict}
@@ -296,154 +290,228 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Spacious Charts Grid */}
-      <div className="grid md:grid-cols-3 gap-6">
-        {/* Donut Chart */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-6 backdrop-blur-md">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            <span>Verdict Breakdown</span>
-          </h2>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={5} dataKey="value">
-                  {pieData.map((e, idx) => (
-                    <Cell key={idx} fill={e.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px' }} />
-              </PieChart>
-            </ResponsiveContainer>
+      {/* Charts Grid */}
+      <div className="grid md:grid-cols-3 gap-4">
+        {/* Chart 1: Verdict Breakdown */}
+        <div className="card-defense p-4 rounded-lg space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+              Operational Verdicts
+            </h3>
+            <span className="text-xs text-slate-400">ICAO Clearances</span>
           </div>
-          <div className="flex justify-between text-xs font-semibold text-slate-300 pt-2 border-t border-slate-800/60">
-            {pieData.map((c) => (
-              <div key={c.name} className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: c.color }} />
-                <span>{c.name}: {c.value}</span>
+          <div className="h-52">
+            {stats.totalScreened > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={75}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#FFFFFF',
+                      borderColor: '#E2E8F0',
+                      borderRadius: '0.375rem',
+                      fontSize: '12px',
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-xs text-slate-400 font-medium">
+                No verifications recorded yet
               </div>
-            ))}
+            )}
+          </div>
+          <div className="flex justify-around text-xs border-t border-slate-100 pt-2 font-medium">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+              <span>Clear: {stats.clearCount}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-600" />
+              <span>Review: {stats.manualReviewCount}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-600" />
+              <span>Reject: {stats.rejectCount}</span>
+            </div>
           </div>
         </div>
 
-        {/* Risk Level Bar Chart */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-6 backdrop-blur-md">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-amber-400" />
-            <span>Risk Level Distribution</span>
-          </h2>
-          <div className="h-56">
+        {/* Chart 2: Threat Distribution */}
+        <div className="card-defense p-4 rounded-lg space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+              Threat Distribution
+            </h3>
+            <span className="text-xs text-slate-400">Risk Matrix</span>
+          </div>
+          <div className="h-52">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={barData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
-                <YAxis stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px' }} />
-                <Bar dataKey="count" radius={[8, 8, 0, 0]}>
-                  {barData.map((entry, idx) => (
-                    <Cell key={`cell-${idx}`} fill={entry.fill} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="name" stroke="#64748B" fontSize={11} />
+                <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#FFFFFF',
+                    borderColor: '#E2E8F0',
+                    borderRadius: '0.375rem',
+                    fontSize: '12px',
+                  }}
+                />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {barData.map((entry, index) => (
+                    <Cell key={`bar-${index}`} fill={entry.fill} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-xs text-slate-400 text-center font-medium pt-2 border-t border-slate-800/60">
-            Multi-Factor Risk Engine (Part 6 Formula)
-          </p>
+          <div className="text-xs text-slate-500 text-center border-t border-slate-100 pt-2">
+            Calculated via Composite Risk Engine &amp; ELA weights
+          </div>
         </div>
 
-        {/* Real-Time Traffic Volume Area Chart */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-6 rounded-3xl shadow-xl space-y-6 backdrop-blur-md">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-emerald-400" />
-            <span>Real-Time Traffic Volume</span>
-          </h2>
-          <div className="h-56">
+        {/* Chart 3: Passenger Volume Throughput */}
+        <div className="card-defense p-4 rounded-lg space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+              Throughput Volume
+            </h3>
+            <span className="text-xs text-slate-400">Lane 04</span>
+          </div>
+          <div className="h-52">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
-                <YAxis stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '16px' }} />
-                <Area type="monotone" dataKey="total" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
-                <Area type="monotone" dataKey="high" stroke="#ef4444" fill="#ef4444" fillOpacity={0.3} />
+                <defs>
+                  <linearGradient id="flowGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0284C7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#0284C7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="time" stroke="#64748B" fontSize={11} />
+                <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#FFFFFF',
+                    borderColor: '#E2E8F0',
+                    borderRadius: '0.375rem',
+                    fontSize: '12px',
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="#0284C7"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#flowGrad)"
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-xs text-slate-400 text-center font-medium pt-2 border-t border-slate-800/60">
-            Live Document Throughput Rate
-          </p>
+          <div className="text-xs text-slate-500 text-center border-t border-slate-100 pt-2 font-medium">
+            418 pax / hour flow capacity
+          </div>
         </div>
       </div>
 
-      {/* Spacious Real-Time Screenings Table */}
-      <div className="bg-slate-900/60 border border-slate-800/80 rounded-3xl shadow-xl overflow-hidden space-y-6 p-6 backdrop-blur-md">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-white flex items-center gap-2.5">
-            <Clock className="w-5 h-5 text-blue-400" />
-            <span>Live Database Screening Log</span>
-          </h2>
-          <Link to="/verifications" className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1.5 font-bold">
-            <span>View Complete History ({list.length})</span>
-            <ArrowRight className="w-4 h-4" />
+      {/* Recent Manifest Queue / Inspection Ledger */}
+      <div className="card-defense p-4 rounded-lg space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+              Active Manifest Queue // Recent Screenings
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Inspection records with biometric match and cryptographic ledger tags
+            </p>
+          </div>
+          <Link
+            to="/verifications"
+            className="text-xs text-sky-700 hover:text-sky-800 font-bold flex items-center gap-1"
+          >
+            <span>Full History</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
 
-        {loading ? (
-          <div className="py-12 text-center text-xs text-slate-400">Loading screening logs…</div>
-        ) : list.length === 0 ? (
-          <div className="py-12 text-center text-xs text-slate-400">No screenings recorded yet.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800/80">
+        <div className="overflow-x-auto rounded border border-slate-200">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold uppercase tracking-wider text-[11px]">
+                <th className="py-2.5 px-3">SESSION ID</th>
+                <th className="py-2.5 px-3">TIMESTAMP</th>
+                <th className="py-2.5 px-3">DOCUMENT #</th>
+                <th className="py-2.5 px-3">RISK LEVEL</th>
+                <th className="py-2.5 px-3">FINAL VERDICT</th>
+                <th className="py-2.5 px-3 text-right">DOSSIER ACTION</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {list.length === 0 ? (
                 <tr>
-                  <th className="py-4 px-6">ID</th>
-                  <th className="py-4 px-6">Subject Name</th>
-                  <th className="py-4 px-6">Doc Number</th>
-                  <th className="py-4 px-6">Type</th>
-                  <th className="py-4 px-6">Risk Level</th>
-                  <th className="py-4 px-6">Verdict</th>
-                  <th className="py-4 px-6 text-right">Action</th>
+                  <td colSpan={6} className="py-8 text-center text-slate-500 font-medium">
+                    No border screening events recorded yet. Ready to screen incoming travelers at Lane 04.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {list.slice(0, 6).map((v) => (
-                  <tr key={v.verificationId} className="hover:bg-slate-800/40 transition-all">
-                    <td className="py-4 px-6 font-mono text-slate-400 font-medium">#{v.verificationId}</td>
-                    <td className="py-4 px-6 font-bold text-slate-100">{v.extracted?.name || 'Unknown'}</td>
-                    <td className="py-4 px-6 font-mono text-blue-400 font-semibold">{v.extracted?.passportNumber || '—'}</td>
-                    <td className="py-4 px-6 text-slate-400">{v.documentType}</td>
-                    <td className="py-4 px-6">
-                      <RiskBadge level={v.riskLevel} score={v.riskScore} />
+              ) : (
+                list.slice(0, 8).map((item) => (
+                  <tr key={item.verificationId} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                      #{String(item.verificationId).slice(0, 10)}
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-2.5 px-3 text-slate-500 font-mono">
+                      {item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-sky-700 font-mono font-bold">
+                      {item.extracted?.passportNumber ||
+                        (item.extracted?.visualZone?.documentNumber as string) ||
+                        `DOC-${item.documentId}`}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <RiskBadge level={item.riskLevel || 'LOW'} />
+                    </td>
+                    <td className="py-2.5 px-3">
                       <span
-                        className={`inline-block px-3 py-1 rounded-full font-bold text-[10px] tracking-wider ${
-                          v.finalResult === 'CLEAR'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : v.finalResult === 'MANUAL_REVIEW'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                          item.finalResult === 'CLEAR'
+                            ? 'text-emerald-800 bg-emerald-50 border border-emerald-200'
+                            : item.finalResult === 'MANUAL_REVIEW'
+                            ? 'text-amber-800 bg-amber-50 border border-amber-200'
+                            : 'text-rose-800 bg-rose-50 border border-rose-200'
                         }`}
                       >
-                        {v.finalResult}
+                        {item.finalResult || 'CLEAR'}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-right">
+                    <td className="py-2.5 px-3 text-right">
                       <button
-                        onClick={() => nav(`/verification/${v.verificationId}`)}
-                        className="text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3.5 py-1.5 rounded-xl border border-blue-500/20 transition-all font-semibold"
+                        onClick={() => nav(`/verification/${item.verificationId}`)}
+                        className="px-3 py-1.5 rounded bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold transition-colors"
                       >
-                        Inspect →
+                        View Dossier
                       </button>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

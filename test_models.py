@@ -9,6 +9,7 @@ from PIL import Image
 # Ensure project root is in import path
 ROOT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(ROOT_DIR / "ai-service"))
 
 from ml.inference.document_pipeline import UnifiedDocumentVerificationPipeline
 

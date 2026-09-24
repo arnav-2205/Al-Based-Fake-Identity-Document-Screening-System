@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, AuditLogEntry } from '../api/client';
-import { FileCheck2, Search, Lock, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { FileCheck2, Search, Lock, CheckCircle2, ShieldAlert, Database } from 'lucide-react';
 
 export default function AuditLogs() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
@@ -30,26 +30,28 @@ export default function AuditLogs() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 font-mono">
       {/* Header */}
-      <div className="bg-slate-900/60 border border-slate-800/80 p-8 rounded-3xl shadow-xl backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+      <div className="card-defense p-5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-extrabold text-white flex items-center gap-3 tracking-tight">
-            <FileCheck2 className="w-7 h-7 text-purple-400" />
-            <span>Audit &amp; Compliance Forensic Trail</span>
-          </h1>
-          <p className="text-xs text-slate-400 font-normal">
-            Immutable log of officer decisions, screening creations, and cryptographic ledger hashes.
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-sky-600" />
+            <h1 className="text-base font-bold text-slate-900 font-display uppercase tracking-wide">
+              Audit &amp; Compliance Forensic Trail
+            </h1>
+          </div>
+          <p className="text-xs text-slate-500">
+            Immutable chain of custody for officer screening actions, ledger anchors, and SHA-256 block receipts.
           </p>
         </div>
         {logs.length > 0 ? (
-          <div className="text-xs font-mono text-emerald-400 bg-emerald-950/40 px-4 py-2 rounded-2xl border border-emerald-800/30 flex items-center gap-2 font-bold">
-            <CheckCircle2 className="w-4.5 h-4.5 text-emerald-400" />
-            <span>Ledger Verified ({logs.length} Audit Events)</span>
+          <div className="text-xs text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded border border-emerald-200 flex items-center gap-2 font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>Ledger Synced ({logs.length} Events)</span>
           </div>
         ) : (
-          <div className="text-xs font-mono text-slate-400 bg-slate-900/80 px-4 py-2 rounded-2xl border border-slate-800 flex items-center gap-2 font-bold">
-            <Lock className="w-4.5 h-4.5 text-slate-500" />
+          <div className="text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-2 font-bold">
+            <Lock className="w-4 h-4 text-slate-400" />
             <span>Ledger: Awaiting Events</span>
           </div>
         )}
@@ -57,9 +59,9 @@ export default function AuditLogs() {
 
       {/* Search Bar */}
       <div className="relative">
-        <Search className="w-4.5 h-4.5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
         <input
-          className="w-full bg-slate-900/60 border border-slate-800/80 focus:border-blue-500 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-100 placeholder-slate-500 outline-none transition-all"
+          className="w-full bg-white border border-slate-200 focus:border-sky-500 rounded-md pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 outline-none transition-all shadow-2xs"
           placeholder="Search by Verification ID, Officer Action, IP Address, or Record Hash…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -67,54 +69,63 @@ export default function AuditLogs() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900/60 border border-slate-800/80 rounded-3xl shadow-xl overflow-hidden backdrop-blur-md">
+      <div className="card-defense rounded-lg overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-xs text-slate-400">Loading audit trail…</div>
         ) : errorMsg ? (
           <div className="p-12 text-center space-y-2">
-            <ShieldAlert className="w-8 h-8 text-red-400 mx-auto" />
-            <div className="text-xs font-bold text-red-400">{errorMsg}</div>
+            <ShieldAlert className="w-8 h-8 text-rose-500 mx-auto" />
+            <div className="text-xs font-bold text-rose-600">{errorMsg}</div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-12 text-center space-y-2">
-            <div className="text-sm font-bold text-slate-300">NO AUDIT EVENTS RECORDED YET</div>
-            <p className="text-xs text-slate-500">
-              {query ? 'No audit records match your search criteria.' : 'No completed document screenings or officer actions have been logged.'}
+          <div className="p-12 text-center space-y-1.5">
+            <div className="text-xs font-bold text-slate-700 uppercase">NO AUDIT EVENTS RECORDED YET</div>
+            <p className="text-xs text-slate-400">
+              {query
+                ? 'No audit records match your search criteria.'
+                : 'Completed document screenings and officer decisions will appear here with cryptographic hashes.'}
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/80 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800/80">
+              <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200 text-[11px]">
                 <tr>
-                  <th className="py-4 px-6">Timestamp</th>
-                  <th className="py-4 px-6">Verification ID</th>
-                  <th className="py-4 px-6">Officer Action</th>
-                  <th className="py-4 px-6">IP Address</th>
-                  <th className="py-4 px-6">SHA-256 Record Hash</th>
-                  <th className="py-4 px-6">Blockchain Tx</th>
-                  <th className="py-4 px-6">Ledger Status</th>
+                  <th className="py-2.5 px-4">TIMESTAMP</th>
+                  <th className="py-2.5 px-4">VERIFICATION ID</th>
+                  <th className="py-2.5 px-4">OFFICER ACTION</th>
+                  <th className="py-2.5 px-4">IP ADDRESS</th>
+                  <th className="py-2.5 px-4">SHA-256 RECORD HASH</th>
+                  <th className="py-2.5 px-4">BLOCKCHAIN TX</th>
+                  <th className="py-2.5 px-4">LEDGER STATUS</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
+              <tbody className="divide-y divide-slate-100 text-[11px]">
                 {filtered.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-800/40 transition-all">
-                    <td className="py-4 px-6 text-slate-400 font-sans">
-                      {l.timestamp ? String(l.timestamp).slice(0, 19).replace('T', ' ') : '—'}
+                  <tr key={l.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-2.5 px-4 text-slate-500 whitespace-nowrap">
+                      {l.timestamp ? new Date(l.timestamp).toLocaleString() : '—'}
                     </td>
-                    <td className="py-4 px-6 font-bold text-blue-400">#{l.verificationId}</td>
-                    <td className="py-4 px-6 font-sans font-bold text-slate-200">{l.action}</td>
-                    <td className="py-4 px-6 text-slate-400">{l.ipAddress || '127.0.0.1'}</td>
-                    <td className="py-4 px-6 text-purple-300 text-[11px]">
-                      {l.recordHash ? `${l.recordHash.slice(0, 18)}…` : '—'}
+                    <td className="py-2.5 px-4 font-bold text-slate-900">
+                      #{String(l.verificationId).slice(0, 10)}
                     </td>
-                    <td className="py-4 px-6 text-blue-300 text-[11px]">
-                      {l.blockchainTxId ? `${l.blockchainTxId.slice(0, 18)}…` : '—'}
+                    <td className="py-2.5 px-4 font-semibold text-slate-800">{l.action}</td>
+                    <td className="py-2.5 px-4 text-slate-500">{l.ipAddress || '127.0.0.1'}</td>
+                    <td className="py-2.5 px-4 text-sky-700 max-w-xs truncate" title={l.recordHash}>
+                      {l.recordHash ? `${l.recordHash.slice(0, 16)}…` : '—'}
                     </td>
-                    <td className="py-4 px-6">
-                      <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full font-bold text-[10px] flex items-center gap-1.5 w-max font-sans tracking-wider">
-                        <Lock className="w-3.5 h-3.5" />
-                        <span>{l.integrityStatus || 'VERIFIED'}</span>
+                    <td className="py-2.5 px-4 text-slate-600 max-w-xs truncate" title={l.blockchainTxId}>
+                      {l.blockchainTxId || 'TX-ICP4-PENDING'}
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          l.integrityStatus === 'TAMPERED'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        }`}
+                      >
+                        {l.integrityStatus || 'VERIFIED'}
                       </span>
                     </td>
                   </tr>

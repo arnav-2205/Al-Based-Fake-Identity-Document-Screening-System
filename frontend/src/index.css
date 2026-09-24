@@ -3,9 +3,76 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply bg-slate-950 text-slate-100 antialiased font-sans min-h-screen selection:bg-blue-600 selection:text-white;
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #F8FAFC;
+    color: #0F172A;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    text-rendering: optimizeLegibility;
   }
+}
+
+/* Optical Scanner Laser Sweep */
+@keyframes realisticLaser {
+  0% {
+    top: 2%;
+    opacity: 0.1;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    top: 96%;
+    opacity: 0.1;
+  }
+}
+.scanner-laser-line {
+  animation: realisticLaser 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+
+/* Subtle Pulsing Landmarks for Biometrics */
+@keyframes landmarkBreathe {
+  0%, 100% {
+    opacity: 0.65;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.05);
+  }
+}
+.landmark-pulse {
+  animation: landmarkBreathe 3s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Live Badge Gentle Pulse */
+@keyframes softLivePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.live-dot-pulse {
+  animation: softLivePulse 2.2s ease-in-out infinite;
+}
+
+/* Clean Card Hover */
+.card-defense {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid #E2E8F0;
+  background: #FFFFFF;
+}
+.card-defense:hover {
+  border-color: #CBD5E1;
+  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+}
+
+/* Tabular numeric rendering */
+.t-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Custom Scrollbars */
@@ -15,16 +82,16 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #020617;
+  background: #F1F5F9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #CBD5E1;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #94A3B8;
 }
 
 /* Print Stylesheet for Forensic Reports */
@@ -36,16 +103,8 @@
   header, footer, nav, button {
     display: none !important;
   }
-  .bg-slate-900, .bg-slate-950, .bg-slate-900\/60 {
-    background: #ffffff !important;
+  .card-defense {
     border-color: #cbd5e1 !important;
-    color: #0f172a !important;
     box-shadow: none !important;
-  }
-  .text-white, .text-slate-100, .text-slate-200 {
-    color: #0f172a !important;
-  }
-  .text-slate-400, .text-slate-500 {
-    color: #475569 !important;
   }
 }
