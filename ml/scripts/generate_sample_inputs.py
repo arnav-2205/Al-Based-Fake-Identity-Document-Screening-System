@@ -9,11 +9,13 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from PIL import Image, ImageDraw
 from ml.scripts.dataset_generator import (
     build_passport_data,
     render_document_image,
     apply_tampering,
-    create_synthetic_portrait
+    create_synthetic_portrait,
+    _get_font,
 )
 
 
@@ -113,6 +115,78 @@ def main():
     path6 = output_dir / "06_impostor_live_photo.png"
     portrait_impostor.save(path6)
     print(f"[PORTRAIT] Generated Impostor Live Subject Photo: {path6}")
+
+    # 7. Genuine Republic of India Entry Visa
+    visa_img = Image.new("RGB", (800, 520), color=(240, 253, 244))
+    visa_draw = ImageDraw.Draw(visa_img)
+    visa_font_hdr = _get_font(18)
+    visa_font_lbl = _get_font(12)
+    visa_font_val = _get_font(15)
+    visa_font_mrz = _get_font(20, mono=True)
+    visa_draw.rectangle([15, 15, 785, 505], outline=(16, 185, 129), width=2)
+    visa_draw.text((40, 30), "REPUBLIC OF INDIA - ENTRY VISA", fill=(15, 23, 42), font=visa_font_hdr)
+    visa_draw.text((40, 60), "VISA NO: V9842105  •  TYPE: TOURIST / MULTIPLE ENTRY", fill=(4, 120, 87), font=visa_font_lbl)
+    
+    # Portrait on Visa
+    visa_portrait = create_synthetic_portrait(size=(150, 190), seed=505)
+    visa_img.paste(visa_portrait, (40, 95))
+    visa_draw.rectangle([40, 95, 190, 285], outline=(100, 116, 139), width=1)
+    
+    visa_draw.text((220, 100), "SURNAME / GIVEN NAME:", fill=(100, 116, 139), font=visa_font_lbl)
+    visa_draw.text((220, 120), "WATSON EMILY", fill=(15, 23, 42), font=visa_font_val)
+    visa_draw.text((220, 160), "PASSPORT NO / NATIONALITY:", fill=(100, 116, 139), font=visa_font_lbl)
+    visa_draw.text((220, 180), "Z7654321 / GBR", fill=(15, 23, 42), font=visa_font_val)
+    visa_draw.text((220, 220), "DURATION OF STAY:", fill=(100, 116, 139), font=visa_font_lbl)
+    visa_draw.text((220, 240), "90 DAYS (MULTIPLE)", fill=(4, 120, 87), font=visa_font_val)
+    
+    visa_draw.text((500, 100), "VALID FROM / VALID UNTIL:", fill=(100, 116, 139), font=visa_font_lbl)
+    visa_draw.text((500, 120), "01 JAN 2026 / 31 DEC 2028", fill=(15, 23, 42), font=visa_font_val)
+    visa_draw.text((500, 160), "PLACE OF ISSUE:", fill=(100, 116, 139), font=visa_font_lbl)
+    visa_draw.text((500, 180), "LONDON (HCI)", fill=(15, 23, 42), font=visa_font_val)
+    
+    visa_mrz_l1 = "V<INDWATSON<<EMILY<<<<<<<<<<<<<<<<<<<<<<<<<<"
+    visa_mrz_l2 = "V9842105<4GBR8806152F2812318<<<<<<<<<<<<<<<02"
+    visa_draw.rectangle([20, 410, 780, 495], fill=(10, 25, 47))
+    visa_draw.text((35, 422), visa_mrz_l1, fill=(110, 231, 183), font=visa_font_mrz)
+    visa_draw.text((35, 455), visa_mrz_l2, fill=(110, 231, 183), font=visa_font_mrz)
+    path7 = output_dir / "07_genuine_entry_visa.png"
+    _save_with_mrz_exif(visa_img, path7, f"{visa_mrz_l1}\n{visa_mrz_l2}")
+    print(f"[VISA] Generated Genuine Entry Visa Sample: {path7}")
+
+    # 8. Genuine Driving Licence (DL-0420110023456)
+    dl_img = Image.new("RGB", (800, 520), color=(241, 245, 249))
+    dl_draw = ImageDraw.Draw(dl_img)
+    dl_font_hdr = _get_font(18)
+    dl_font_lbl = _get_font(12)
+    dl_font_val = _get_font(15)
+    dl_draw.rectangle([15, 15, 785, 505], outline=(59, 130, 246), width=2)
+    dl_draw.text((40, 30), "UNION OF INDIA - DRIVING LICENCE", fill=(15, 23, 42), font=dl_font_hdr)
+    dl_draw.text((40, 60), "TRANSPORT DEPARTMENT, DELHI  •  LICENCE NO: DL-0420110023456", fill=(29, 78, 216), font=dl_font_lbl)
+    
+    # Portrait on DL
+    dl_portrait = create_synthetic_portrait(size=(150, 190), seed=606)
+    dl_img.paste(dl_portrait, (40, 95))
+    dl_draw.rectangle([40, 95, 190, 285], outline=(100, 116, 139), width=1)
+    
+    dl_draw.text((220, 100), "NAME OF HOLDER:", fill=(100, 116, 139), font=dl_font_lbl)
+    dl_draw.text((220, 120), "VIKRAM SINGH", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((220, 160), "DATE OF BIRTH / BLOOD GROUP:", fill=(100, 116, 139), font=dl_font_lbl)
+    dl_draw.text((220, 180), "15-08-1988  •  B+ POSITIVE", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((220, 220), "CLASS OF VEHICLES (COV):", fill=(100, 116, 139), font=dl_font_lbl)
+    dl_draw.text((220, 240), "LMV, MCWG", fill=(29, 78, 216), font=dl_font_val)
+    
+    dl_draw.text((500, 100), "ISSUE DATE / VALID TILL:", fill=(100, 116, 139), font=dl_font_lbl)
+    dl_draw.text((500, 120), "10-04-2015 / 14-08-2038", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((500, 160), "ISSUING AUTHORITY:", fill=(100, 116, 139), font=dl_font_lbl)
+    dl_draw.text((500, 180), "RTO RAJPUR ROAD (DL-04)", fill=(15, 23, 42), font=dl_font_val)
+    
+    dl_draw.rectangle([20, 410, 780, 495], fill=(30, 41, 59))
+    dl_draw.text((35, 430), "OPTICAL DRIVING LICENCE SECURITY STRIP & DIGITAL SARATHI CHIP VERIFIED", fill=(147, 197, 253), font=_get_font(14, mono=True))
+    dl_draw.text((35, 460), "ISSUED UNDER MOTOR VEHICLES ACT 1988  •  GOVERNMENT OF NCT OF DELHI", fill=(203, 213, 225), font=_get_font(12, mono=True))
+    
+    path8 = output_dir / "08_genuine_driving_licence.png"
+    dl_img.save(path8)
+    print(f"[DL] Generated Genuine Driving Licence Sample: {path8}")
 
     print("\n---------------------------------------------------------------")
     print(f"All sample input files generated in: {output_dir}")

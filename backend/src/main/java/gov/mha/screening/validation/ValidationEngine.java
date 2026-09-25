@@ -29,6 +29,10 @@ public class ValidationEngine {
     ) {}
 
     public Outcome validate(ExtractedData data, AiDtos.OcrResult ocr) {
+        return validate(data, ocr, null);
+    }
+
+    public Outcome validate(ExtractedData data, AiDtos.OcrResult ocr, String selectedType) {
         List<String> reasons = new ArrayList<>();
         boolean mrzChecksumFailed = false;
         boolean expired = false;
@@ -41,12 +45,30 @@ public class ValidationEngine {
         String detectedType = ocr != null && ocr.detectedDocumentType() != null ? ocr.detectedDocumentType()
                 : (data.getVisualZone() != null && data.getVisualZone().get("detectedDocumentType") != null ? String.valueOf(data.getVisualZone().get("detectedDocumentType")) : null);
 
-        boolean hasClassification = (cat != null && !"UNKNOWN".equalsIgnoreCase(cat))
+        String effectiveType = selectedType != null && !selectedType.isBlank() && !"UNKNOWN".equalsIgnoreCase(selectedType)
+                ? selectedType
+                : (sub != null ? sub : (detectedType != null ? detectedType : (cat != null ? cat : "UNKNOWN")));
+
+        boolean isExplicitNonPassport = "VISA".equalsIgnoreCase(selectedType)
+                || "DRIVING_LICENCE".equalsIgnoreCase(selectedType)
+                || "NATIONAL_ID".equalsIgnoreCase(selectedType)
+                || "OTHER_GOVT_DOC".equalsIgnoreCase(selectedType)
+                || "VISA".equalsIgnoreCase(effectiveType)
+                || "DRIVING_LICENCE".equalsIgnoreCase(effectiveType)
+                || "AADHAAR".equalsIgnoreCase(effectiveType)
+                || "PAN".equalsIgnoreCase(effectiveType);
+
+        boolean isPassport = !isExplicitNonPassport && ("PASSPORT".equalsIgnoreCase(effectiveType)
+                || "PASSPORT".equalsIgnoreCase(cat)
+                || "PASSPORT".equalsIgnoreCase(sub)
+                || "PASSPORT".equalsIgnoreCase(detectedType));
+
+        boolean hasClassification = isPassport || isExplicitNonPassport
+                || (cat != null && !"UNKNOWN".equalsIgnoreCase(cat))
                 || (sub != null && !"UNKNOWN".equalsIgnoreCase(sub))
                 || (detectedType != null && !"UNKNOWN".equalsIgnoreCase(detectedType));
 
-        String docType = sub != null ? sub : (detectedType != null ? detectedType : (cat != null ? cat : "UNKNOWN"));
-        boolean isPassport = "PASSPORT".equalsIgnoreCase(cat) || "PASSPORT".equalsIgnoreCase(sub) || "PASSPORT".equalsIgnoreCase(detectedType);
+        String docType = effectiveType;
         boolean hasMrzData = data.getMrzData() != null && !data.getMrzData().isBlank();
 
         Optional<Mrz.Parsed> parsedMrz = hasMrzData ? Mrz.parseTd3(data.getMrzData()) : Optional.empty();

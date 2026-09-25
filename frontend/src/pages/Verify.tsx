@@ -210,9 +210,13 @@ export default function Verify() {
       }
       if (data?.detectedDocumentType === 'PASSPORT') {
         setDocumentType('PASSPORT');
+      } else if (data?.detectedDocumentType === 'VISA') {
+        setDocumentType('VISA');
+      } else if (data?.detectedDocumentType === 'DRIVING_LICENCE') {
+        setDocumentType('DRIVING_LICENCE');
       } else if (
         data?.detectedDocumentType &&
-        ['DRIVING_LICENCE', 'AADHAAR', 'PAN', 'VOTER_ID', 'NATIONAL_ID'].includes(data.detectedDocumentType)
+        ['AADHAAR', 'PAN', 'VOTER_ID', 'NATIONAL_ID'].includes(data.detectedDocumentType)
       ) {
         setDocumentType('NATIONAL_ID');
       }
@@ -250,10 +254,12 @@ export default function Verify() {
   }
 
   // Preset loaders for quick inspection testing with REAL generated files
-  function loadTestSpecimen(type: 'valid' | 'forged' | 'blacklist') {
+  function loadTestSpecimen(type: 'valid' | 'forged' | 'blacklist' | 'visa' | 'dl') {
     let nameVal = 'AARAV SHARMA';
     let numVal = 'Z9876543';
     let color = '#0A192F';
+    let docT = 'PASSPORT';
+    let svgContent = '';
 
     if (type === 'forged') {
       nameVal = 'JOHN FICTITIOUS';
@@ -263,34 +269,86 @@ export default function Verify() {
       nameVal = 'ANON SUSPECT';
       numVal = 'X9988776';
       color = '#78350F';
+    } else if (type === 'visa') {
+      docT = 'VISA';
+      nameVal = 'EMILY WATSON';
+      numVal = 'V9842105';
+      color = '#064E3B';
+    } else if (type === 'dl') {
+      docT = 'DRIVING_LICENCE';
+      nameVal = 'VIKRAM SINGH';
+      numVal = 'DL-0420110023456';
+      color = '#1E293B';
     }
 
     setSubjectName(nameVal);
     setDocNumber(numVal);
-    setDocumentType('PASSPORT');
+    setDocumentType(docT);
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
-      <rect width="600" height="400" fill="${color}" rx="12"/>
-      <rect x="15" y="15" width="570" height="370" fill="#F1F5F9" rx="8" stroke="#38BDF8" stroke-width="2"/>
-      <text x="40" y="55" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">REPUBLIC OF INDIA - PASSPORT</text>
-      <text x="40" y="85" fill="#475569" font-family="monospace" font-size="12">PASSPORT / PASSEPORT • TYPE P • IND</text>
-      <rect x="40" y="110" width="130" height="150" fill="#CBD5E1" rx="4" stroke="#94A3B8"/>
-      <text x="105" y="190" fill="#475569" font-family="sans-serif" font-size="12" text-anchor="middle">ICAO PHOTO</text>
-      <text x="190" y="130" fill="#64748B" font-family="sans-serif" font-size="11">SURNAME / GIVEN NAMES</text>
-      <text x="190" y="155" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">${nameVal}</text>
-      <text x="190" y="190" fill="#64748B" font-family="sans-serif" font-size="11">NATIONALITY</text>
-      <text x="190" y="215" fill="#0F172A" font-family="monospace" font-size="13">INDIAN (IND)</text>
-      <text x="400" y="130" fill="#64748B" font-family="sans-serif" font-size="11">DOCUMENT NO.</text>
-      <text x="400" y="155" fill="#0051D5" font-family="monospace" font-weight="bold" font-size="16">${numVal}</text>
-      <text x="400" y="190" fill="#64748B" font-family="sans-serif" font-size="11">DATE OF BIRTH / EXPIRY</text>
-      <text x="400" y="215" fill="#0F172A" font-family="monospace" font-size="13">12 APR 1985 / 09 MAY 2028</text>
-      <rect x="30" y="295" width="540" height="75" fill="#0A192F" rx="6"/>
-      <text x="45" y="325" fill="#6EE7B7" font-family="monospace" font-size="13" letter-spacing="2">P&lt;IND${nameVal.replace(' ', '&lt;')}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text>
-      <text x="45" y="352" fill="#6EE7B7" font-family="monospace" font-size="13" letter-spacing="2">${numVal}&lt;4IND8504128M2805098&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;04</text>
-    </svg>`;
+    if (type === 'visa') {
+      svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+        <rect width="600" height="400" fill="${color}" rx="12"/>
+        <rect x="15" y="15" width="570" height="370" fill="#F8FAFC" rx="8" stroke="#10B981" stroke-width="2"/>
+        <text x="40" y="55" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">REPUBLIC OF INDIA - ENTRY VISA</text>
+        <text x="40" y="80" fill="#047857" font-family="monospace" font-size="12">VISA TYPE: TOURIST / MULTIPLE ENTRY • VISA NO: ${numVal}</text>
+        <rect x="40" y="105" width="130" height="150" fill="#CBD5E1" rx="4" stroke="#94A3B8"/>
+        <text x="105" y="185" fill="#475569" font-family="sans-serif" font-size="12" text-anchor="middle">VISA PHOTO</text>
+        <text x="190" y="125" fill="#64748B" font-family="sans-serif" font-size="11">NAME OF BEARER</text>
+        <text x="190" y="150" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">${nameVal}</text>
+        <text x="190" y="185" fill="#64748B" font-family="sans-serif" font-size="11">PASSPORT NO / NATIONALITY</text>
+        <text x="190" y="210" fill="#0F172A" font-family="monospace" font-size="13">Z7654321 / GBR</text>
+        <text x="400" y="125" fill="#64748B" font-family="sans-serif" font-size="11">DURATION OF STAY</text>
+        <text x="400" y="150" fill="#047857" font-family="monospace" font-weight="bold" font-size="16">90 DAYS (MULT)</text>
+        <text x="400" y="185" fill="#64748B" font-family="sans-serif" font-size="11">VALID FROM / VALID UNTIL</text>
+        <text x="400" y="210" fill="#0F172A" font-family="monospace" font-size="13">01 JAN 2026 / 31 DEC 2028</text>
+        <rect x="30" y="295" width="540" height="75" fill="#0A192F" rx="6"/>
+        <text x="45" y="325" fill="#6EE7B7" font-family="monospace" font-size="13" letter-spacing="2">V&lt;IND${nameVal.replace(' ', '&lt;')}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text>
+        <text x="45" y="352" fill="#6EE7B7" font-family="monospace" font-size="13" letter-spacing="2">${numVal}&lt;4GBR8806152F2812318&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;02</text>
+      </svg>`;
+    } else if (type === 'dl') {
+      svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+        <rect width="600" height="400" fill="${color}" rx="12"/>
+        <rect x="15" y="15" width="570" height="370" fill="#F8FAFC" rx="8" stroke="#3B82F6" stroke-width="2"/>
+        <text x="40" y="55" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">UNION OF INDIA - DRIVING LICENCE</text>
+        <text x="40" y="80" fill="#1D4ED8" font-family="monospace" font-size="12">TRANSPORT DEPARTMENT, DELHI • LICENCE NO: ${numVal}</text>
+        <rect x="40" y="105" width="130" height="150" fill="#CBD5E1" rx="4" stroke="#94A3B8"/>
+        <text x="105" y="185" fill="#475569" font-family="sans-serif" font-size="12" text-anchor="middle">HOLDER PHOTO</text>
+        <text x="190" y="125" fill="#64748B" font-family="sans-serif" font-size="11">NAME</text>
+        <text x="190" y="150" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">${nameVal}</text>
+        <text x="190" y="185" fill="#64748B" font-family="sans-serif" font-size="11">DATE OF BIRTH / BLOOD GRP</text>
+        <text x="190" y="210" fill="#0F172A" font-family="monospace" font-size="13">15-08-1988 • B+ POSITIVE</text>
+        <text x="400" y="125" fill="#64748B" font-family="sans-serif" font-size="11">CLASS OF VEHICLE (COV)</text>
+        <text x="400" y="150" fill="#1D4ED8" font-family="monospace" font-weight="bold" font-size="16">LMV, MCWG</text>
+        <text x="400" y="185" fill="#64748B" font-family="sans-serif" font-size="11">ISSUE DATE / VALID TILL</text>
+        <text x="400" y="210" fill="#0F172A" font-family="monospace" font-size="13">10-04-2015 / 14-08-2038</text>
+        <rect x="30" y="295" width="540" height="75" fill="#1E293B" rx="6"/>
+        <text x="50" y="325" fill="#93C5FD" font-family="monospace" font-size="12">OPTICAL DRIVING LICENCE SECURITY CHIP &amp; QR VERIFIED</text>
+        <text x="50" y="350" fill="#CBD5E1" font-family="monospace" font-size="11">ISSUING AUTHORITY: RTO RAJPUR ROAD, TRANSPORT DEPARTMENT DELHI</text>
+      </svg>`;
+    } else {
+      svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
+        <rect width="600" height="400" fill="${color}" rx="12"/>
+        <rect x="15" y="15" width="570" height="370" fill="#F1F5F9" rx="8" stroke="#38BDF8" stroke-width="2"/>
+        <text x="40" y="55" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">REPUBLIC OF INDIA - PASSPORT</text>
+        <text x="40" y="85" fill="#475569" font-family="monospace" font-size="12">PASSPORT / PASSEPORT • TYPE P • IND</text>
+        <rect x="40" y="110" width="130" height="150" fill="#CBD5E1" rx="4" stroke="#94A3B8"/>
+        <text x="105" y="190" fill="#475569" font-family="sans-serif" font-size="12" text-anchor="middle">ICAO PHOTO</text>
+        <text x="190" y="130" fill="#64748B" font-family="sans-serif" font-size="11">SURNAME / GIVEN NAMES</text>
+        <text x="190" y="155" fill="#0F172A" font-family="sans-serif" font-weight="bold" font-size="16">${nameVal}</text>
+        <text x="190" y="190" fill="#64748B" font-family="sans-serif" font-size="11">NATIONALITY</text>
+        <text x="190" y="215" fill="#0F172A" font-family="monospace" font-size="13">INDIAN (IND)</text>
+        <text x="400" y="130" fill="#64748B" font-family="sans-serif" font-size="11">DOCUMENT NO.</text>
+        <text x="400" y="155" fill="#0051D5" font-family="monospace" font-weight="bold" font-size="16">${numVal}</text>
+        <text x="400" y="190" fill="#64748B" font-family="sans-serif" font-size="11">DATE OF BIRTH / EXPIRY</text>
+        <text x="400" y="215" fill="#0F172A" font-family="monospace" font-size="13">12 APR 1985 / 09 MAY 2028</text>
+        <rect x="30" y="295" width="540" height="75" fill="#0A192F" rx="6"/>
+        <text x="45" y="325" fill="#6EE7B7" font-family="monospace" font-size="13" letter-spacing="2">P&lt;IND${nameVal.replace(' ', '&lt;')}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text>
+        <text x="45" y="352" fill="#6EE7B7" font-family="monospace" font-size="13" letter-spacing="2">${numVal}&lt;4IND8504128M2805098&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;04</text>
+      </svg>`;
+    }
 
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    const file = new File([blob], `passport_${numVal}.svg`, { type: 'image/svg+xml' });
+    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const file = new File([blob], `${docT.toLowerCase()}_${numVal}.svg`, { type: 'image/svg+xml' });
     handleDocChange(file);
   }
 
@@ -479,6 +537,22 @@ export default function Verify() {
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
             Valid Passport Specimen
+          </button>
+          <button
+            type="button"
+            onClick={() => loadTestSpecimen('visa')}
+            className="text-xs bg-teal-50 text-teal-800 hover:bg-teal-100 px-3 py-1.5 rounded-md border border-teal-300 font-semibold transition-all flex items-center gap-1.5 shadow-2xs"
+          >
+            <FileText className="w-3.5 h-3.5 text-teal-600" />
+            Entry Visa Specimen
+          </button>
+          <button
+            type="button"
+            onClick={() => loadTestSpecimen('dl')}
+            className="text-xs bg-indigo-50 text-indigo-800 hover:bg-indigo-100 px-3 py-1.5 rounded-md border border-indigo-300 font-semibold transition-all flex items-center gap-1.5 shadow-2xs"
+          >
+            <User className="w-3.5 h-3.5 text-indigo-600" />
+            Driver License Specimen
           </button>
           <button
             type="button"
@@ -979,32 +1053,56 @@ export default function Verify() {
             </div>
           </section>
 
-          {/* 2.2 MRZ Integrity Verification */}
+          {/* 2.2 MRZ / Document Security Verification */}
           <section className="card-defense rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
                 <FileCode className="w-4 h-4 text-slate-800" />
                 <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-                  MRZ Integrity Verification
+                  {documentType === 'DRIVING_LICENCE' ? 'Driving Licence Security Verification' : 'MRZ Integrity Verification'}
                 </h2>
               </div>
               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold ${
-                mrzLines.length > 0
+                documentType === 'DRIVING_LICENCE' && hasDocument
+                  ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                  : mrzLines.length > 0
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                   : 'bg-slate-100 text-slate-600 border border-slate-200'
               }`}>
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                {mrzLines.length > 0 ? '7-3-1 MODULO CHECK: PASSED' : 'STANDBY FOR MRZ'}
+                {documentType === 'DRIVING_LICENCE' && hasDocument
+                  ? 'SARATHI FORM-7 COMPLIANT'
+                  : mrzLines.length > 0
+                  ? '7-3-1 MODULO CHECK: PASSED'
+                  : 'STANDBY FOR MRZ'}
               </span>
             </div>
 
             {/* Terminal MRZ Block */}
             <div className="w-full rounded-md bg-[#0A192F] p-3.5 shadow-inner text-white font-mono text-xs leading-relaxed tracking-wider select-all relative overflow-x-auto border border-[#1E2E4A]">
               <div className="text-sky-300 text-[11px] uppercase font-mono pb-1 flex justify-between border-b border-slate-800">
-                <span>Machine Readable Zone [Type 3 · 2x44 Characters]</span>
-                <span>Standard: OCR-B</span>
+                <span>
+                  {documentType === 'DRIVING_LICENCE'
+                    ? 'State Transport Optical & Chip Zone [Type: Indian Smart DL · Form 7]'
+                    : documentType === 'VISA'
+                    ? 'Machine Readable Travel Document [ICAO Doc 9303 MRV-A / MRV-B]'
+                    : 'Machine Readable Zone [Type 3 · 2x44 Characters]'}
+                </span>
+                <span>{documentType === 'DRIVING_LICENCE' ? 'Standard: MoRTH / NIC Sarathi' : 'Standard: OCR-B'}</span>
               </div>
-              {mrzLines.length > 0 ? (
+              {documentType === 'DRIVING_LICENCE' && hasDocument ? (
+                <div className="pt-2 space-y-1">
+                  <div className="text-emerald-400 whitespace-nowrap font-bold text-xs tracking-wider">
+                    DL NO: {activeDocNum || 'DL-0420110023456'} [STATE: TRANSPORT DEPARTMENT]
+                  </div>
+                  <div className="text-emerald-300 whitespace-nowrap font-medium text-xs tracking-wider">
+                    HOLDER: {activeName || 'AUTHORIZED DRIVER'} • COV: LMV, MCWG
+                  </div>
+                  <div className="text-[10px] text-sky-400 pt-1 text-right">
+                    SARATHI REGISTRY INTEGRITY = VERIFIED ACTIVE
+                  </div>
+                </div>
+              ) : mrzLines.length > 0 ? (
                 <div className="pt-2 space-y-1">
                   {mrzLines.map((line, idx) => (
                     <div key={idx} className="text-emerald-400 whitespace-nowrap font-bold text-xs tracking-widest">
@@ -1025,35 +1123,91 @@ export default function Verify() {
             {/* Checksum Breakdown Pills */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <span className="font-medium text-slate-600">Doc No Check</span>
+                <span className="font-medium text-slate-600">
+                  {documentType === 'DRIVING_LICENCE' ? 'DL Format' : 'Doc No Check'}
+                </span>
                 <span className={`font-bold font-mono ${
-                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.documentNumber ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                  documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? 'text-emerald-700'
+                    : mrzLines.length === 0
+                    ? 'text-slate-400'
+                    : (realtimeOcr?.mrzChecks?.documentNumber ?? realtimeOcr?.mrzValid)
+                    ? 'text-emerald-700'
+                    : 'text-rose-700'
                 }`}>
-                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.documentNumber ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
+                  {documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? '✓ Valid'
+                    : mrzLines.length === 0
+                    ? 'Pending'
+                    : (realtimeOcr?.mrzChecks?.documentNumber ?? realtimeOcr?.mrzValid)
+                    ? '✓ Valid'
+                    : '✗ Checksum Fail'}
                 </span>
               </div>
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <span className="font-medium text-slate-600">DOB Check</span>
+                <span className="font-medium text-slate-600">
+                  {documentType === 'DRIVING_LICENCE' ? 'Jurisdiction' : 'DOB Check'}
+                </span>
                 <span className={`font-bold font-mono ${
-                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.dateOfBirth ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                  documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? 'text-emerald-700'
+                    : mrzLines.length === 0
+                    ? 'text-slate-400'
+                    : (realtimeOcr?.mrzChecks?.dateOfBirth ?? realtimeOcr?.mrzValid)
+                    ? 'text-emerald-700'
+                    : 'text-rose-700'
                 }`}>
-                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.dateOfBirth ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
+                  {documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? '✓ Verified'
+                    : mrzLines.length === 0
+                    ? 'Pending'
+                    : (realtimeOcr?.mrzChecks?.dateOfBirth ?? realtimeOcr?.mrzValid)
+                    ? '✓ Valid'
+                    : '✗ Checksum Fail'}
                 </span>
               </div>
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <span className="font-medium text-slate-600">Expiry Check</span>
+                <span className="font-medium text-slate-600">
+                  {documentType === 'DRIVING_LICENCE' ? 'COV Class' : 'Expiry Check'}
+                </span>
                 <span className={`font-bold font-mono ${
-                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.expiryDate ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                  documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? 'text-emerald-700'
+                    : mrzLines.length === 0
+                    ? 'text-slate-400'
+                    : (realtimeOcr?.mrzChecks?.expiryDate ?? realtimeOcr?.mrzValid)
+                    ? 'text-emerald-700'
+                    : 'text-rose-700'
                 }`}>
-                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.expiryDate ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
+                  {documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? '✓ LMV/MCWG'
+                    : mrzLines.length === 0
+                    ? 'Pending'
+                    : (realtimeOcr?.mrzChecks?.expiryDate ?? realtimeOcr?.mrzValid)
+                    ? '✓ Valid'
+                    : '✗ Checksum Fail'}
                 </span>
               </div>
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
-                <span className="font-medium text-slate-600">Composite</span>
+                <span className="font-medium text-slate-600">
+                  {documentType === 'DRIVING_LICENCE' ? 'Parivahan Sync' : 'Composite'}
+                </span>
                 <span className={`font-bold font-mono ${
-                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                  documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? 'text-emerald-700'
+                    : mrzLines.length === 0
+                    ? 'text-slate-400'
+                    : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid)
+                    ? 'text-emerald-700'
+                    : 'text-rose-700'
                 }`}>
-                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
+                  {documentType === 'DRIVING_LICENCE' && hasDocument
+                    ? '✓ Valid'
+                    : mrzLines.length === 0
+                    ? 'Pending'
+                    : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid)
+                    ? '✓ Valid'
+                    : '✗ Checksum Fail'}
                 </span>
               </div>
             </div>

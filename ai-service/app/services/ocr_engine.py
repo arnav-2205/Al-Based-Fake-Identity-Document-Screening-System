@@ -255,9 +255,9 @@ def _find_mrz(text: str) -> tuple[str | None, str]:
     cleaned = [_clean_mrz_candidate(l) for l in lines]
     cleaned = [l for l in cleaned if len(l) >= 15]
 
-    # TD3 Passport (2x44)
+    # TD3 Passport (2x44) & MRV-A Visa (2x44)
     for i, l1 in enumerate(cleaned):
-        if l1.startswith("P") and len(l1) >= 15:
+        if (l1.startswith("P") or l1.startswith("V")) and len(l1) >= 15:
             for j in range(i + 1, min(i + 4, len(cleaned))):
                 l2 = cleaned[j]
                 if len(l2) >= 20 and any(c.isdigit() for c in l2):
@@ -763,12 +763,36 @@ class GenericNationalIDAdapter:
         return "UNKNOWN"
 
     def _detect_doc_category_and_subtype(self, upper: str, raw_mrz: str | None) -> tuple[str, str]:
-        if raw_mrz and raw_mrz.startswith("P<"):
-            return "PASSPORT", "PASSPORT"
+        # 1. MRZ Signature Check
+        if raw_mrz:
+            clean_mrz = raw_mrz.strip().upper()
+            if clean_mrz.startswith("P<"):
+                return "PASSPORT", "PASSPORT"
+            if clean_mrz.startswith("V<") or clean_mrz.startswith("VI<"):
+                return "VISA", "VISA"
+
+        # 2. VISA Detection (must precede passport keywords because visas contain "PASSPORT NO")
+        visa_indicators = (
+            "VISA", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA",
+            "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY",
+            "NUMBER OF ENTRIES", "VISA TYPE"
+        )
+        if any(k in upper for k in visa_indicators):
+            return "VISA", "VISA"
+
+        # 3. Driving Licence Detection
+        dl_indicators = (
+            "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
+            "MOTOR VEHICLES", "TRANSPORT DEPARTMENT", "UNION OF INDIA DRIVING",
+            "DL NO", "DL NUMBER", "LICENCE NO", "LICENSE NO", "CLASS OF VEHICLE",
+            "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN", "LICENCE TO DRIVE"
+        )
+        if any(k in upper for k in dl_indicators):
+            return "DRIVING_LICENCE", "DRIVING_LICENCE"
+
+        # 4. National ID Subtypes
         if any(k in upper for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")) or (any(k in upper for k in ("GOVERNMENT OF INDIA", "INDIA")) and re.search(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", upper)):
             return "NATIONAL_ID", "AADHAAR"
-        if any(k in upper for k in ("DRIVING LICENCE", "DRIVING LICENSE", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT")):
-            return "DRIVING_LICENCE", "DRIVING_LICENCE"
         if any(k in upper for k in ("INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER", "PAN CARD", "TAX ID")):
             return "NATIONAL_ID", "TAX_ID"
         if any(k in upper for k in ("ELECTION COMMISSION", "ELECTORAL", "ELECTOR PHOTO", "VOTER ID", "EPIC")):
@@ -777,10 +801,12 @@ class GenericNationalIDAdapter:
             return "NATIONAL_ID", "RESIDENT_PERMIT"
         if any(k in upper for k in ("SOCIAL SECURITY", "SOCIAL INSURANCE", "SSN")):
             return "NATIONAL_ID", "SOCIAL_SECURITY_ID"
-        if any(k in upper for k in ("PASSPORT", "PASSEPORT")):
+
+        # 5. Passport (safe now that Visa has been identified)
+        if any(k in upper for k in ("PASSPORT", "PASSEPORT", "PASAPORTE")):
             return "PASSPORT", "PASSPORT"
-        if any(k in upper for k in ("VISA", "VISA TRAVEL")):
-            return "VISA", "VISA"
+
+        # 6. Generic National ID
         if any(k in upper for k in ("PERSONALAUSWEIS", "NATIONAL ID", "IDENTITY CARD", "CARTE NATIONALE", "CITIZEN CARD")):
             return "NATIONAL_ID", "NATIONAL_ID_CARD"
         return "NATIONAL_ID", "OTHER_GOVT_ID"
@@ -1089,33 +1115,27 @@ def detect_document_type(
     """
     text_norm = _normalize_text(text).upper()
 
-    # 1. PASSPORT Detection
+    # 1. MRZ Signature Check
     if raw_mrz:
         clean_mrz = raw_mrz.strip().upper()
         if clean_mrz.startswith("P<") or "P<" in clean_mrz:
             return "PASSPORT", 0.98
+        if clean_mrz.startswith("V<") or "\nV<" in clean_mrz or "V<" in clean_mrz:
+            return "VISA", 0.98
 
-    passport_keywords = ("PASSPORT", "PASSEPORT", "PASAPORTE", "REPUBLIK PASSPORT", "REPUBLIC PASSPORT")
-    if any(k in text_norm for k in passport_keywords):
-        if any(k in text_norm for k in ("REPUBLIC", "GOVERNMENT", "KINGDOM", "UNION", "FEDERATION", "P<", "COUNTRY CODE", "AUTHORITY")):
-            return "PASSPORT", 0.95
-        return "PASSPORT", 0.90
-
-    # 2. VISA Detection
-    if raw_mrz and (raw_mrz.strip().upper().startswith("V<") or "\nV<" in raw_mrz.strip().upper()):
-        return "VISA", 0.98
-
+    # 2. VISA Detection (checked BEFORE Passport because Visas contain "PASSPORT NO")
     visa_keywords = (
         "VISA", "SCHENGEN VISA", "ENTRY VISA", "EXIT VISA", "TRANSIT VISA",
         "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY",
-        "NUMBER OF ENTRIES", "VALID FOR", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02"
+        "NUMBER OF ENTRIES", "VALID FOR", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02",
+        "VISA TYPE"
     )
     visa_hits = sum(1 for k in visa_keywords if k in text_norm)
     if visa_hits >= 2 or "SCHENGEN VISA" in text_norm or "TYPE OF VISA" in text_norm:
         return "VISA", 0.95
     if visa_hits == 1 and "VISA" in text_norm:
-        if any(k in text_norm for k in ("PASSPORT NO", "STAY", "ENTRIES", "VALID FOR", "CATEGORY", "ISSUED AT", "BEARER")):
-            return "VISA", 0.90
+        if any(k in text_norm for k in ("PASSPORT NO", "STAY", "ENTRIES", "VALID FOR", "CATEGORY", "ISSUED AT", "BEARER", "REPUBLIC", "GOVERNMENT")):
+            return "VISA", 0.92
 
     # 3. DRIVING_LICENCE Detection
     if barcode_data and barcode_data.get("barcodeDetected"):
@@ -1126,11 +1146,19 @@ def detect_document_type(
     dl_keywords = (
         "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
         "LICENCE NO", "LICENSE NO", "DL NO", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT",
-        "CLASS OF VEHICLES", "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN"
+        "CLASS OF VEHICLES", "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN",
+        "UNION OF INDIA DRIVING", "LICENCE TO DRIVE"
     )
     dl_hits = sum(1 for k in dl_keywords if k in text_norm)
     if dl_hits >= 1:
         return "DRIVING_LICENCE", 0.95 if dl_hits >= 2 else 0.92
+
+    # 4. PASSPORT Detection (now safe because Visa and DL have been evaluated)
+    passport_keywords = ("PASSPORT", "PASSEPORT", "PASAPORTE", "REPUBLIK PASSPORT", "REPUBLIC PASSPORT")
+    if any(k in text_norm for k in passport_keywords):
+        if any(k in text_norm for k in ("REPUBLIC", "GOVERNMENT", "KINGDOM", "UNION", "FEDERATION", "P<", "COUNTRY CODE", "AUTHORITY")):
+            return "PASSPORT", 0.95
+        return "PASSPORT", 0.90
 
     # 4. PERMIT Detection
     permit_keywords = (
@@ -1305,7 +1333,18 @@ def extract_visa_fields(
         expiry_date = fields["expiryDate"]
 
     # 6. Check if Document is a Visa
-    is_visa = (detected_type == "VISA") or any(k in text_upper for k in ("SCHENGEN VISA", "TYPE OF VISA", "VISA NO", "VISA NUMBER", "DURATION OF STAY", "ENTRIES: MULT", "ENTRIES: 01"))
+    is_visa = (detected_type == "VISA") or any(
+        k in text_upper for k in (
+            "VISA", "SCHENGEN VISA", "TYPE OF VISA", "VISA NO", "VISA NUMBER",
+            "DURATION OF STAY", "ENTRIES: MULT", "ENTRIES: 01", "ENTRIES: 02",
+            "ENTRY VISA", "VISA TYPE", "VALID FOR", "ENTRIES"
+        )
+    ) or bool(raw_mrz and ("V<" in raw_mrz or raw_mrz.startswith("V")))
+
+    if not visa_number and fields and (fields.get("documentNumber") or fields.get("passportNumber")):
+        candidate_num = fields.get("documentNumber") or fields.get("passportNumber")
+        if candidate_num and not candidate_num.startswith("P<"):
+            visa_number = candidate_num
 
     if not is_visa:
         return {
@@ -1493,8 +1532,26 @@ def extract_dl_fields(
 
     # 9. Check if Document is a Driving Licence
     is_dl = (detected_type == "DRIVING_LICENCE") or any(
-        k in text_upper for k in ("DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "LICENCE NO", "LICENSE NO", "DL NO", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN", "CLASS OF VEHICLE")
+        k in text_upper for k in (
+            "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
+            "LICENCE NO", "LICENSE NO", "DL NO", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN",
+            "CLASS OF VEHICLE", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT", "UNION OF INDIA DRIVING",
+            "LICENCE TO DRIVE"
+        )
     )
+
+    if not dl_number and fields and (fields.get("documentNumber") or fields.get("passportNumber")):
+        candidate_num = fields.get("documentNumber") or fields.get("passportNumber")
+        if candidate_num and not candidate_num.startswith("P<"):
+            dl_number = candidate_num
+    if not holder_name and fields and (fields.get("name") or fields.get("holderName")):
+        holder_name = fields.get("name") or fields.get("holderName")
+    if not dob and fields and fields.get("dateOfBirth"):
+        dob = fields["dateOfBirth"]
+    if not issue_date and fields and fields.get("issueDate"):
+        issue_date = fields["issueDate"]
+    if not expiry_date and fields and fields.get("expiryDate"):
+        expiry_date = fields["expiryDate"]
 
     if not is_dl:
         return {

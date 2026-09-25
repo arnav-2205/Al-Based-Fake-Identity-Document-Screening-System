@@ -78,9 +78,9 @@ def parse_td3(raw: str | None) -> ParsedMrz | None:
         cleaned_lines.append(cleaned)
     lines = cleaned_lines
 
-    # Must look like an ICAO 9303 TD3 MRZ:
-    # Line 1 must begin with P (passport) and contain '<'
-    if not (lines[0].startswith("P") and "<" in lines[0]):
+    # Must look like an ICAO 9303 TD3 (passport) or MRV-A (visa) MRZ:
+    # Line 1 must begin with P (passport) or V (visa) and contain '<'
+    if not ((lines[0].startswith("P") or lines[0].startswith("V")) and "<" in lines[0]):
         return None
     # Line 2 must have at least one '<' or digits in DOB/expiry positions
     if lines[1].count("<") < 1 and not any(c.isdigit() for c in lines[1]):
