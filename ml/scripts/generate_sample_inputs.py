@@ -168,17 +168,11 @@ def main():
     dl_img.paste(dl_portrait, (40, 95))
     dl_draw.rectangle([40, 95, 190, 285], outline=(100, 116, 139), width=1)
     
-    dl_draw.text((220, 100), "NAME OF HOLDER:", fill=(100, 116, 139), font=dl_font_lbl)
-    dl_draw.text((220, 120), "VIKRAM SINGH", fill=(15, 23, 42), font=dl_font_val)
-    dl_draw.text((220, 160), "DATE OF BIRTH / BLOOD GROUP:", fill=(100, 116, 139), font=dl_font_lbl)
-    dl_draw.text((220, 180), "15-08-1988  •  B+ POSITIVE", fill=(15, 23, 42), font=dl_font_val)
-    dl_draw.text((220, 220), "CLASS OF VEHICLES (COV):", fill=(100, 116, 139), font=dl_font_lbl)
-    dl_draw.text((220, 240), "LMV, MCWG", fill=(29, 78, 216), font=dl_font_val)
-    
-    dl_draw.text((500, 100), "ISSUE DATE / VALID TILL:", fill=(100, 116, 139), font=dl_font_lbl)
-    dl_draw.text((500, 120), "10-04-2015 / 14-08-2038", fill=(15, 23, 42), font=dl_font_val)
-    dl_draw.text((500, 160), "ISSUING AUTHORITY:", fill=(100, 116, 139), font=dl_font_lbl)
-    dl_draw.text((500, 180), "RTO RAJPUR ROAD (DL-04)", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((220, 100), "NAME: VIKRAM SINGH", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((220, 140), "DATE OF BIRTH: 15-08-1988  •  BLOOD GROUP: B+", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((220, 180), "ISSUE DATE: 10-04-2015  •  VALID TILL: 14-08-2038", fill=(15, 23, 42), font=dl_font_val)
+    dl_draw.text((220, 220), "CLASS OF VEHICLES: LMV, MCWG", fill=(29, 78, 216), font=dl_font_val)
+    dl_draw.text((220, 260), "ISSUING AUTHORITY: RTO RAJPUR ROAD, DELHI (DL-04)", fill=(15, 23, 42), font=dl_font_val)
     
     dl_draw.rectangle([20, 410, 780, 495], fill=(30, 41, 59))
     dl_draw.text((35, 430), "OPTICAL DRIVING LICENCE SECURITY STRIP & DIGITAL SARATHI CHIP VERIFIED", fill=(147, 197, 253), font=_get_font(14, mono=True))

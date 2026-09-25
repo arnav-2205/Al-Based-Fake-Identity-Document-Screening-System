@@ -951,6 +951,17 @@ class GenericNationalIDAdapter:
             if norm:
                 return norm, 0.92
 
+        # Check within 120 chars of DOB keyword even across multiline / column shifts
+        m_nearby = re.search(
+            r"(?:DOB|DATE\s*OF\s*BIRTH|YEAR\s*OF\s*BIRTH|BIRTH\s*YEAR|YOB)[\s\S]{0,120}?(\d{1,4}[-/,\s]\d{1,2}[-/,\s]\d{2,4})",
+            upper,
+        )
+        if m_nearby:
+            raw_d = m_nearby.group(1).replace(",", "/").replace(" ", "-")
+            norm = _normalize_date(raw_d)
+            if norm:
+                return norm, 0.90
+
         for l in lines:
             if re.search(r"\b(DOB|BIRTH|YOB|NAISSANCE|GEBURTSDATUM)\b", l, re.I):
                 d_m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\b\d{4}\b)\b", l)
@@ -963,7 +974,7 @@ class GenericNationalIDAdapter:
             d_m = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b", l)
             if d_m:
                 norm = _normalize_date(d_m.group(1))
-                if norm and not norm.startswith("202"):
+                if norm and not norm.startswith("202") and not norm.startswith("201"):
                     return norm, 0.82
 
         return "", 0.0
@@ -1476,20 +1487,22 @@ def extract_dl_fields(
                 holder_name = c_name
 
     # 4. Date of Birth
-    if fields and fields.get("dateOfBirth"):
+    m_dob = re.search(r"(?:DOB|DATE\s*OF\s*BIRTH|D\.O\.B|BIRTH\s*DATE)[\s\S]{0,120}?(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+    if m_dob:
+        c_dob = _normalize_date(m_dob.group(1))
+        if c_dob:
+            dob = c_dob
+    if not dob and fields and fields.get("dateOfBirth"):
         dob = fields["dateOfBirth"]
-    else:
-        m_dob = re.search(r"(?:DOB|DATE\s*OF\s*BIRTH|D\.O\.B|BIRTH\s*DATE)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
-        if m_dob:
-            dob = _normalize_date(m_dob.group(1))
 
     # 5. Issue Date
-    if fields and fields.get("issueDate"):
+    m_iss = re.search(r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUE|VALID\s*FROM|ISSUED\s*ON|DOI)[\s\S]{0,80}?(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
+    if m_iss:
+        c_iss = _normalize_date(m_iss.group(1))
+        if c_iss and c_iss != dob:
+            issue_date = c_iss
+    if not issue_date and fields and fields.get("issueDate"):
         issue_date = fields["issueDate"]
-    else:
-        m_iss = re.search(r"(?:ISSUE\s*DATE|DATE\s*OF\s*ISSUE|ISSUE|VALID\s*FROM|ISSUED\s*ON|DOI)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
-        if m_iss:
-            issue_date = _normalize_date(m_iss.group(1))
 
     # 6. Expiry / Validity Date (CRITICAL REGRESSION REQUIREMENT)
     # Expiry MUST NOT be filled with issue_date. It stays None if no explicit expiry match is found!
