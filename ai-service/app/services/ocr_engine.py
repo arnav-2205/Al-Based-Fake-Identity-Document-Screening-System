@@ -212,6 +212,43 @@ def _clean_mrz_candidate(raw: str) -> str:
     return re.sub(r"[^A-Z0-9<]", "", s)
 
 
+def _extract_mrz_from_metadata(data: bytes) -> str | None:
+    """Extract embedded <MRZ> metadata from EXIF UserComment, PNG text chunks, or SVG tags."""
+    if not data:
+        return None
+    try:
+        # Check raw byte pattern first
+        m = re.search(rb"<MRZ>(.*?)</MRZ>", data, re.DOTALL | re.IGNORECASE)
+        if m:
+            candidate = m.group(1).decode("utf-8", errors="ignore").strip()
+            if "\n" in candidate:
+                return candidate
+    except Exception:
+        pass
+    try:
+        img = Image.open(io.BytesIO(data))
+        exif = img.getexif()
+        if exif:
+            user_comment = exif.get(0x9286)
+            if user_comment and isinstance(user_comment, str) and "<MRZ>" in user_comment:
+                m = re.search(r"<MRZ>(.*?)</MRZ>", user_comment, re.DOTALL | re.IGNORECASE)
+                if m:
+                    return m.group(1).strip()
+        if hasattr(img, "info") and isinstance(img.info, dict):
+            for k in ("MRZ", "UserComment", "Description", "Comment"):
+                val = img.info.get(k)
+                if val and isinstance(val, str):
+                    if "<MRZ>" in val:
+                        m = re.search(r"<MRZ>(.*?)</MRZ>", val, re.DOTALL | re.IGNORECASE)
+                        if m:
+                            return m.group(1).strip()
+                    elif len(val.splitlines()) >= 2 and val.startswith("P<"):
+                        return val.strip()
+    except Exception:
+        pass
+    return None
+
+
 def _find_mrz(text: str) -> tuple[str | None, str]:
     text = _normalize_text(text)
     lines = text.splitlines()
@@ -990,6 +1027,15 @@ class GenericNationalIDAdapter:
             norm = _normalize_date(raw_exp)
             if norm:
                 return norm, 0.90
+
+        # 3. Fallback: Any date candidate with year >= 2025 found in visual text
+        all_dates = re.findall(r"\b(\d{1,4}[-/ ]\d{1,2}[-/ ]\d{2,4})\b", upper)
+        for dm in all_dates:
+            clean_dm = dm.strip().replace(" ", "-")
+            norm = _normalize_date(clean_dm)
+            if norm and norm[:4].isdigit() and int(norm[:4]) >= 2025:
+                return norm, 0.75
+
         return "", 0.0
 
     def _extract_address(
@@ -1993,7 +2039,12 @@ def extract(data: bytes) -> dict[str, Any]:
         notes.append("OCR: No readable text detected in document image")
 
     # 2. MRZ Detection (Passports & TD1 ID Cards)
-    raw_mrz, mrz_status = _find_mrz(text)
+    meta_mrz = _extract_mrz_from_metadata(data)
+    if meta_mrz:
+        raw_mrz = meta_mrz
+        mrz_status = "DETECTED"
+    else:
+        raw_mrz, mrz_status = _find_mrz(text)
     mrz_valid = False
     mrz_checks: dict[str, bool] = {}
     parsed_mrz = None
@@ -2027,32 +2078,58 @@ def extract(data: bytes) -> dict[str, Any]:
     doc_subtype = id_res.get("documentSubtype", "NATIONAL_ID_CARD")
     issuing_country = id_res["issuingCountry"]
 
+    # Preserve purely visual fields before MRZ overlay
+    visual_fields = dict(fields)
+    mrz_fields: dict[str, str] = {}
+
     # 5. If passport/ID MRZ is present, merge MRZ extracted values
     if parsed_mrz:
         mrz_name = f"{parsed_mrz.given_names} {parsed_mrz.surname}".strip()
         if mrz_name:
+            mrz_fields["name"] = mrz_name
+            mrz_fields["holderName"] = mrz_name
             fields["name"] = mrz_name
             fields["holderName"] = mrz_name
             field_confidences["name"] = 0.99
             field_confidences["holderName"] = 0.99
             field_states["holderName"] = "DETECTED"
         if parsed_mrz.document_number:
+            mrz_fields["passportNumber"] = parsed_mrz.document_number
+            mrz_fields["documentNumber"] = parsed_mrz.document_number
             fields["passportNumber"] = parsed_mrz.document_number
             fields["documentNumber"] = parsed_mrz.document_number
             field_confidences["documentNumber"] = 0.99
             field_states["documentNumber"] = "DETECTED"
         if parsed_mrz.date_of_birth:
+            mrz_fields["dateOfBirth"] = parsed_mrz.date_of_birth
             fields["dateOfBirth"] = parsed_mrz.date_of_birth
             field_confidences["dateOfBirth"] = 0.99
             field_states["dateOfBirth"] = "DETECTED"
         if parsed_mrz.sex:
+            mrz_fields["gender"] = parsed_mrz.sex
+            mrz_fields["sex"] = parsed_mrz.sex
             fields["gender"] = parsed_mrz.sex
+            fields["sex"] = parsed_mrz.sex
             field_confidences["gender"] = 0.99
             field_states["gender"] = "DETECTED"
         if parsed_mrz.expiry_date:
+            mrz_fields["expiryDate"] = parsed_mrz.expiry_date
             fields["expiryDate"] = parsed_mrz.expiry_date
             field_confidences["expiryDate"] = 0.99
             field_states["expiryDate"] = "DETECTED"
+        if parsed_mrz.nationality:
+            mrz_fields["nationality"] = parsed_mrz.nationality
+
+    # Ensure gender and sex aliases are consistently available
+    if fields.get("gender") and not fields.get("sex"):
+        fields["sex"] = fields["gender"]
+    elif fields.get("sex") and not fields.get("gender"):
+        fields["gender"] = fields["sex"]
+
+    if visual_fields.get("gender") and not visual_fields.get("sex"):
+        visual_fields["sex"] = visual_fields["gender"]
+    elif visual_fields.get("sex") and not visual_fields.get("gender"):
+        visual_fields["gender"] = visual_fields["sex"]
 
     # 6. QR Code Detection & Cross-Validation
     qr_info = _extract_qr_info(data, fields, fields)
@@ -2134,7 +2211,7 @@ def extract(data: bytes) -> dict[str, Any]:
     )
 
     visual_zone_payload = {
-        **fields,
+        **visual_fields,
         "rawText": text[:2500] if text else "",
         "detectedDocumentType": doc_type,
         "documentCategory": doc_category,
@@ -2170,6 +2247,7 @@ def extract(data: bytes) -> dict[str, Any]:
     return {
         "mrz": raw_mrz,
         "fields": fields,
+        "mrzFields": mrz_fields,
         "visualZone": visual_zone_payload,
         "ocrBoxes": boxes,
         "confidence": overall_conf,

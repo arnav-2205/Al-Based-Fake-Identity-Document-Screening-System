@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class OcrResult(BaseModel):
     mrz: str | None = None
     fields: dict[str, str] = Field(default_factory=dict)
+    mrzFields: dict[str, str] = Field(default_factory=dict)
     visualZone: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.0
     fieldExtractionConfidence: float = 0.0

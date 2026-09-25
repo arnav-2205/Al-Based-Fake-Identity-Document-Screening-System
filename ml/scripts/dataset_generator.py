@@ -5,6 +5,7 @@ stamp datasets, MRZ test suites, and face verification pairs strictly adhering
 to safety policies (synthetic identities, no real PII, no data leakage).
 """
 import os
+import re
 import json
 import random
 import hashlib
@@ -190,11 +191,109 @@ def create_synthetic_stamp(size=(120, 120), seed=42, forged=False):
     
     return img.rotate(seed % 30 - 15, resample=Image.BICUBIC, expand=False)
 
+def compute_mrz_lines(
+    nationality: str,
+    surname: str,
+    given_name: str,
+    doc_num: str,
+    dob_iso: str,
+    gender: str,
+    exp_iso: str
+) -> str:
+    """Computes exact 2x44 ICAO 9303 TD3 MRZ lines with strictly correct modulo-10 check digits."""
+    doc_num_clean = re.sub(r"[^A-Z0-9]", "", str(doc_num).upper())
+    doc_num_mrz = doc_num_clean.ljust(9, '<')[:9]
+    doc_num_chk = compute_mrz_check_digit(doc_num_mrz)
+    
+    # DOB: YYYY-MM-DD -> YYMMDD
+    clean_dob = str(dob_iso).replace("-", "")
+    yy = clean_dob[2:4] if len(clean_dob) >= 4 else "85"
+    mm = clean_dob[4:6] if len(clean_dob) >= 6 else "04"
+    dd = clean_dob[6:8] if len(clean_dob) >= 8 else "12"
+    dob_mrz = f"{yy}{mm}{dd}"
+    dob_chk = compute_mrz_check_digit(dob_mrz)
+    
+    # Expiry: YYYY-MM-DD -> YYMMDD
+    clean_exp = str(exp_iso).replace("-", "")
+    exp_yy = clean_exp[2:4] if len(clean_exp) >= 4 else "32"
+    exp_mm = clean_exp[4:6] if len(clean_exp) >= 6 else "05"
+    exp_dd = clean_exp[6:8] if len(clean_exp) >= 8 else "18"
+    exp_mrz = f"{exp_yy}{exp_mm}{exp_dd}"
+    exp_chk = compute_mrz_check_digit(exp_mrz)
+    
+    opt_field = "Z100000<<<<<<<"[:14]
+    opt_chk = compute_mrz_check_digit(opt_field)
+    
+    s_clean = re.sub(r"[^A-Z]", "", str(surname).upper())
+    g_clean = re.sub(r"[^A-Z]", "", str(given_name).upper())
+    nat_clean = (re.sub(r"[^A-Z]", "", str(nationality).upper()) + "IND")[:3]
+    
+    line1 = f"P<{nat_clean}{s_clean}<<{g_clean}".ljust(44, '<')[:44]
+    comp_data = f"{doc_num_mrz}{doc_num_chk}{dob_mrz}{dob_chk}{exp_mrz}{exp_chk}{opt_field}{opt_chk}"
+    final_chk = compute_mrz_check_digit(comp_data)
+    line2 = f"{doc_num_mrz}{doc_num_chk}{nat_clean}{dob_mrz}{dob_chk}{gender.upper()}{exp_mrz}{exp_chk}{opt_field}{opt_chk}{final_chk}".ljust(44, '<')[:44]
+    return f"{line1}\n{line2}"
+
+
+def build_passport_data(
+    surname: str,
+    given_name: str,
+    document_number: str,
+    date_of_birth: str,
+    gender: str,
+    expiry_date: str,
+    nationality: str = "IND",
+    place_of_issue: str = "NEW DELHI",
+    idx: int = 101,
+) -> dict:
+    mrz = compute_mrz_lines(nationality, surname, given_name, document_number, date_of_birth, gender, expiry_date)
+    return {
+        "id": f"DOC_{idx:05d}",
+        "type": "PASSPORT",
+        "surname": surname.upper(),
+        "givenName": given_name.upper(),
+        "fullName": f"{given_name.upper()} {surname.upper()}",
+        "nationality": nationality.upper(),
+        "documentNumber": document_number.upper(),
+        "dateOfBirth": date_of_birth,
+        "gender": gender.upper(),
+        "expiryDate": expiry_date,
+        "placeOfIssue": place_of_issue.upper(),
+        "mrz": mrz,
+        "mrzValid": True,
+    }
+
+
+def _get_font(size: int, mono: bool = False):
+    candidates = [
+        "C:/Windows/Fonts/consola.ttf",
+        "C:/Windows/Fonts/cour.ttf",
+        "C:/Windows/Fonts/lucon.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    ] if mono else [
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/calibri.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+
 def render_document_image(doc_data: dict, seed: int) -> Image.Image:
     width, height = 800, 520
     # Background security pattern
     bg = Image.new("RGB", (width, height), color=(248, 246, 240))
     draw = ImageDraw.Draw(bg)
+    
+    font_header = _get_font(16, mono=False)
+    font_lbl = _get_font(11, mono=False)
+    font_val = _get_font(15, mono=False)
+    font_mrz = _get_font(21, mono=True)
     
     # Guilloche / fine security line simulation
     for y in range(0, height, 8):
@@ -204,8 +303,8 @@ def render_document_image(doc_data: dict, seed: int) -> Image.Image:
         
     # Header Band
     draw.rectangle([0, 0, width, 60], fill=(24, 48, 89))
-    draw.text((30, 18), "GOVERNMENT OF INDIA / PASSPORT", fill=(255, 255, 255))
-    draw.text((width - 160, 18), "REPUBLIC OF INDIA", fill=(210, 225, 245))
+    draw.text((30, 18), "GOVERNMENT OF INDIA / PASSPORT", fill=(255, 255, 255), font=font_header)
+    draw.text((width - 180, 18), "REPUBLIC OF INDIA", fill=(210, 225, 245), font=font_header)
     
     # Portrait
     portrait = create_synthetic_portrait(size=(140, 180), seed=seed)
@@ -232,8 +331,8 @@ def render_document_image(doc_data: dict, seed: int) -> Image.Image:
         row = i % 5
         x = start_x + (col * 280)
         y = start_y + (row * 36)
-        draw.text((x, y), label.upper(), fill=(110, 120, 135))
-        draw.text((x, y + 14), str(val), fill=(10, 15, 25))
+        draw.text((x, y), label.upper(), fill=(110, 120, 135), font=font_lbl)
+        draw.text((x, y + 14), str(val), fill=(10, 15, 25), font=font_val)
         
     # Stamp
     stamp = create_synthetic_stamp(size=(110, 110), seed=seed, forged=False)
@@ -244,8 +343,8 @@ def render_document_image(doc_data: dict, seed: int) -> Image.Image:
     draw.line([(0, height - 120), (width, height - 120)], fill=(180, 190, 200), width=1)
     
     mrz_lines = doc_data["mrz"].split("\n")
-    draw.text((35, height - 100), mrz_lines[0], fill=(20, 20, 20))
-    draw.text((35, height - 60), mrz_lines[1], fill=(20, 20, 20))
+    draw.text((30, height - 95), mrz_lines[0], fill=(10, 10, 10), font=font_mrz)
+    draw.text((30, height - 55), mrz_lines[1], fill=(10, 10, 10), font=font_mrz)
     
     return bg
 
@@ -271,7 +370,7 @@ def apply_tampering(img: Image.Image, doc_data: dict, tamper_type: str, seed: in
         new_exp = "2039-12-31"
         # White out previous text region and write altered text
         draw.rectangle([500, 228, 700, 258], fill=(248, 246, 240))
-        draw.text((500, 242), new_exp, fill=(5, 5, 5))
+        draw.text((500, 242), new_exp, fill=(5, 5, 5), font=_get_font(15, mono=False))
         details["modifiedFields"].append("expiryDate")
         details["bbox"].append([500, 228, 700, 258])
         

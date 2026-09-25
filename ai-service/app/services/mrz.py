@@ -120,6 +120,24 @@ def parse_td3(raw: str | None) -> ParsedMrz | None:
 
     doc_num = l2[0:9]
     doc_num_chk = l2[9]
+    doc_ok = _verify(doc_num, doc_num_chk)
+    if not doc_ok and l2_chars[0] in alpha_fix:
+        cand_l2 = list(l2_chars)
+        cand_l2[0] = alpha_fix[l2_chars[0]]
+        if _verify("".join(cand_l2[0:9]), doc_num_chk):
+            l2_chars[0] = cand_l2[0]
+            l2 = "".join(l2_chars)
+            doc_num = l2[0:9]
+            doc_ok = True
+
+    # Optional personal number at pos 28:
+    if len(l2_chars) > 42 and l2_chars[28] in alpha_fix:
+        cand_opt = list(l2_chars)
+        cand_opt[28] = alpha_fix[l2_chars[28]]
+        if _verify("".join(cand_opt[28:42]), l2_chars[42]):
+            l2_chars[28] = cand_opt[28]
+            l2 = "".join(l2_chars)
+
     nationality = l2[10:13].replace("<", "")
     dob = l2[13:19]
     dob_chk = l2[19]
@@ -130,7 +148,6 @@ def parse_td3(raw: str | None) -> ParsedMrz | None:
     optional_chk = l2[42]
     final_chk = l2[43]
 
-    doc_ok = _verify(doc_num, doc_num_chk)
     dob_ok = _verify(dob, dob_chk)
     exp_ok = _verify(expiry, expiry_chk)
 

@@ -62,6 +62,7 @@ export interface RealtimeOcrResult {
     expiryDate?: string;
     [key: string]: string | undefined;
   };
+  mrzFields?: Record<string, string>;
   fieldConfidences?: Record<string, number>;
   fieldStates?: Record<string, string>;
   visualZone?: {

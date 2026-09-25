@@ -367,11 +367,69 @@ export default function Verify() {
   const activeIssuing = realtimeOcr?.fields?.issuingCountry || (documentType === 'PASSPORT' ? 'IND • Republic of India' : 'National Registry');
   const activeDocType = documentType === 'PASSPORT' ? 'Passport (ICAO Doc 9303)' : documentType;
   const activeNationality = realtimeOcr?.fields?.nationality || (hasDocument ? 'IND' : '');
-  const activeSex = realtimeOcr?.fields?.sex || (hasDocument ? 'M' : '');
+  const activeSex = realtimeOcr?.fields?.gender || realtimeOcr?.fields?.sex || '';
 
   const mrzLines = realtimeOcr?.mrz
     ? realtimeOcr.mrz.split('\n').map((l) => l.trim()).filter(Boolean)
     : [];
+
+  // Zone-specific fields for genuine cross-data comparison
+  const vizName = realtimeOcr?.visualZone?.name || realtimeOcr?.visualZone?.holderName || subjectName || '';
+  const mrzName = realtimeOcr?.mrzFields?.name || (realtimeOcr?.mrz && !realtimeOcr?.visualZone ? activeName : '');
+
+  const vizDocNum = realtimeOcr?.visualZone?.documentNumber || realtimeOcr?.visualZone?.passportNumber || docNumber || '';
+  const mrzDocNum = realtimeOcr?.mrzFields?.documentNumber || realtimeOcr?.mrzFields?.passportNumber || '';
+
+  const vizDob = realtimeOcr?.visualZone?.dateOfBirth || '';
+  const mrzDob = realtimeOcr?.mrzFields?.dateOfBirth || '';
+
+  const vizExpiry = realtimeOcr?.visualZone?.expiryDate || '';
+  const mrzExpiry = realtimeOcr?.mrzFields?.expiryDate || '';
+
+  const normalizeStr = (s?: string) => (s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  const compareField = (viz: string, mrz: string) => {
+    if (!hasDocument) return { status: 'PENDING', label: 'Pending', color: 'text-slate-400 bg-slate-100' };
+    if (!viz && !mrz) return { status: 'EMPTY', label: '—', color: 'text-slate-400 bg-slate-100' };
+    if (mrzLines.length === 0) {
+      return { status: 'OPTICAL_ONLY', label: 'Visual Valid', color: 'text-blue-800 bg-blue-50 border border-blue-200' };
+    }
+    if (!viz || !mrz) {
+      return { status: 'PARTIAL', label: 'Partial Check', color: 'text-amber-800 bg-amber-50 border border-amber-200' };
+    }
+    const nViz = normalizeStr(viz);
+    const nMrz = normalizeStr(mrz);
+    const vizTokens = viz.toUpperCase().split(/[\s<]+/).filter(Boolean);
+    const mrzTokens = mrz.toUpperCase().split(/[\s<]+/).filter(Boolean);
+    const namesOverlap =
+      vizTokens.length > 0 &&
+      mrzTokens.length > 0 &&
+      (vizTokens.every((t) => mrzTokens.includes(t)) || mrzTokens.every((t) => vizTokens.includes(t)));
+
+    const isMatch = nViz === nMrz || nViz.includes(nMrz) || nMrz.includes(nViz) || namesOverlap;
+
+    if (isMatch) {
+      return { status: 'MATCH', label: 'Match 100% ✓', color: 'text-emerald-800 bg-emerald-50 border border-emerald-200 font-bold' };
+    } else {
+      return { status: 'MISMATCH', label: 'MISMATCH ⚠', color: 'text-rose-800 bg-rose-100 border border-rose-300 font-bold' };
+    }
+  };
+
+  const nameMatch = compareField(vizName, mrzName);
+  const docNumMatch = compareField(vizDocNum, mrzDocNum);
+  const dobMatch = compareField(vizDob, mrzDob);
+  const expiryMatch = compareField(vizExpiry, mrzExpiry);
+
+  const comparedRows = [
+    { field: 'Full Legal Name', viz: vizName || activeName, mrz: mrzName, chip: mrzName || activeName, check: nameMatch },
+    { field: 'Document No.', viz: vizDocNum || activeDocNum, mrz: mrzDocNum, chip: mrzDocNum || activeDocNum, check: docNumMatch },
+    { field: 'Date of Birth', viz: vizDob || activeDob, mrz: mrzDob, chip: mrzDob || activeDob, check: dobMatch },
+    { field: 'Expiry Date', viz: vizExpiry || activeExpiry, mrz: mrzExpiry, chip: mrzExpiry || activeExpiry, check: expiryMatch },
+  ];
+
+  const hasMismatch = comparedRows.some((r) => r.check.status === 'MISMATCH');
+  const evaluatedRows = comparedRows.filter((r) => r.check.status !== 'EMPTY' && r.check.status !== 'PENDING');
+  const allMatch = evaluatedRows.length > 0 && !hasMismatch;
 
   return (
     <div className="space-y-5 font-sans">
@@ -968,26 +1026,34 @@ export default function Verify() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <span className="font-medium text-slate-600">Doc No Check</span>
-                <span className={`font-bold font-mono ${mrzLines.length > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-                  {mrzLines.length > 0 ? '✓ Valid' : 'Pending'}
+                <span className={`font-bold font-mono ${
+                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.documentNumber ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                }`}>
+                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.documentNumber ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
                 </span>
               </div>
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <span className="font-medium text-slate-600">DOB Check</span>
-                <span className={`font-bold font-mono ${mrzLines.length > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-                  {mrzLines.length > 0 ? '✓ Valid' : 'Pending'}
+                <span className={`font-bold font-mono ${
+                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.dateOfBirth ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                }`}>
+                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.dateOfBirth ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
                 </span>
               </div>
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <span className="font-medium text-slate-600">Expiry Check</span>
-                <span className={`font-bold font-mono ${mrzLines.length > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-                  {mrzLines.length > 0 ? '✓ Valid' : 'Pending'}
+                <span className={`font-bold font-mono ${
+                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.expiryDate ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                }`}>
+                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.expiryDate ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
                 </span>
               </div>
               <div className="p-2 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <span className="font-medium text-slate-600">Composite</span>
-                <span className={`font-bold font-mono ${mrzLines.length > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-                  {mrzLines.length > 0 ? '✓ Valid' : 'Pending'}
+                <span className={`font-bold font-mono ${
+                  mrzLines.length === 0 ? 'text-slate-400' : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid) ? 'text-emerald-700' : 'text-rose-700'
+                }`}>
+                  {mrzLines.length === 0 ? 'Pending' : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid) ? '✓ Valid' : '✗ Checksum Fail'}
                 </span>
               </div>
             </div>
@@ -1003,9 +1069,21 @@ export default function Verify() {
                 </h2>
               </div>
               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold ${
-                hasDocument ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                !hasDocument
+                  ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                  : hasMismatch
+                  ? 'bg-rose-100 text-rose-800 border border-rose-300 font-bold animate-pulse'
+                  : allMatch
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold'
+                  : 'bg-blue-50 text-blue-800 border border-blue-200'
               }`}>
-                {hasDocument ? '100% CROSS-MATCH ✓' : 'AWAITING INGEST'}
+                {!hasDocument
+                  ? 'AWAITING INGEST'
+                  : hasMismatch
+                  ? 'CROSS-ZONE MISMATCH ⚠'
+                  : allMatch
+                  ? '100% CROSS-MATCH ✓'
+                  : 'ZONE VERIFIED'}
               </span>
             </div>
 
@@ -1022,45 +1100,25 @@ export default function Verify() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  <tr className="hover:bg-slate-50 font-medium">
-                    <td className="py-2 px-3 text-slate-500 font-semibold">Full Legal Name</td>
-                    <td className="py-2 px-3 text-slate-900">{activeName || '—'}</td>
-                    <td className="py-2 px-3 text-slate-700 font-mono">{activeName || '—'}</td>
-                    <td className="py-2 px-3 text-slate-700 font-mono">{activeName || '—'}</td>
-                    <td className="py-2 px-3 text-right">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        hasDocument ? 'text-emerald-800 bg-emerald-50' : 'text-slate-400 bg-slate-100'
-                      }`}>
-                        {hasDocument ? 'Match 100%' : 'Pending'}
-                      </span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50 font-medium">
-                    <td className="py-2 px-3 text-slate-500 font-semibold">Document No.</td>
-                    <td className="py-2 px-3 text-slate-900 font-mono font-bold">{activeDocNum || '—'}</td>
-                    <td className="py-2 px-3 text-slate-700 font-mono">{activeDocNum || '—'}</td>
-                    <td className="py-2 px-3 text-slate-700 font-mono">{activeDocNum || '—'}</td>
-                    <td className="py-2 px-3 text-right">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        hasDocument ? 'text-emerald-800 bg-emerald-50' : 'text-slate-400 bg-slate-100'
-                      }`}>
-                        {hasDocument ? 'Match 100%' : 'Pending'}
-                      </span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50 font-medium">
-                    <td className="py-2 px-3 text-slate-500 font-semibold">Date of Birth</td>
-                    <td className="py-2 px-3 text-slate-900 font-mono">{activeDob || '—'}</td>
-                    <td className="py-2 px-3 text-slate-700 font-mono">{activeDob || '—'}</td>
-                    <td className="py-2 px-3 text-slate-700 font-mono">{activeDob || '—'}</td>
-                    <td className="py-2 px-3 text-right">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        hasDocument ? 'text-emerald-800 bg-emerald-50' : 'text-slate-400 bg-slate-100'
-                      }`}>
-                        {hasDocument ? 'Match 100%' : 'Pending'}
-                      </span>
-                    </td>
-                  </tr>
+                  {comparedRows.map((row) => (
+                    <tr key={row.field} className={`hover:bg-slate-50 font-medium ${row.check.status === 'MISMATCH' ? 'bg-rose-50/50' : ''}`}>
+                      <td className="py-2 px-3 text-slate-500 font-semibold">{row.field}</td>
+                      <td className={`py-2 px-3 font-mono ${row.check.status === 'MISMATCH' ? 'text-rose-700 font-bold' : 'text-slate-900'}`}>
+                        {row.viz || '—'}
+                      </td>
+                      <td className="py-2 px-3 text-slate-700 font-mono">
+                        {row.mrz || (mrzLines.length === 0 ? 'N/A (No MRZ)' : '—')}
+                      </td>
+                      <td className="py-2 px-3 text-slate-700 font-mono">
+                        {row.chip || (mrzLines.length === 0 ? 'N/A' : '—')}
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        <span className={`text-[10px] px-2 py-0.5 rounded ${row.check.color}`}>
+                          {row.check.label}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
