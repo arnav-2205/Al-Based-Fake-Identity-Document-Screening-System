@@ -422,9 +422,9 @@ export default function Verify() {
   const activeDocNum = docNumber || realtimeOcr?.fields?.documentNumber || realtimeOcr?.fields?.passportNumber || '';
   const activeDob = realtimeOcr?.fields?.dateOfBirth || '';
   const activeExpiry = realtimeOcr?.fields?.expiryDate || '';
-  const activeIssuing = realtimeOcr?.fields?.issuingCountry || (documentType === 'PASSPORT' ? 'IND • Republic of India' : 'National Registry');
+  const activeIssuing = realtimeOcr?.fields?.issuingCountry || realtimeOcr?.visualZone?.issuingCountry || '';
   const activeDocType = documentType === 'PASSPORT' ? 'Passport (ICAO Doc 9303)' : documentType;
-  const activeNationality = realtimeOcr?.fields?.nationality || (hasDocument ? 'IND' : '');
+  const activeNationality = realtimeOcr?.fields?.nationality || '';
   const activeSex = realtimeOcr?.fields?.gender || realtimeOcr?.fields?.sex || '';
 
   const mrzLines = realtimeOcr?.mrz
@@ -1017,7 +1017,7 @@ export default function Verify() {
                   Issuing Authority
                 </span>
                 <div className="mt-1 font-semibold text-slate-800 text-xs">
-                  {activeIssuing}
+                  {activeIssuing || '— Awaiting Document —'}
                 </div>
               </div>
 
@@ -1065,16 +1065,20 @@ export default function Verify() {
               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold ${
                 documentType === 'DRIVING_LICENCE' && hasDocument
                   ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                  : mrzLines.length > 0
+                  : mrzLines.length === 0
+                  ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                  : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid)
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
               }`}>
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {documentType === 'DRIVING_LICENCE' && hasDocument
                   ? 'SARATHI FORM-7 COMPLIANT'
-                  : mrzLines.length > 0
+                  : mrzLines.length === 0
+                  ? 'STANDBY FOR MRZ'
+                  : (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid)
                   ? '7-3-1 MODULO CHECK: PASSED'
-                  : 'STANDBY FOR MRZ'}
+                  : '7-3-1 MODULO CHECK: FAILED'}
               </span>
             </div>
 
@@ -1109,8 +1113,12 @@ export default function Verify() {
                       {line}
                     </div>
                   ))}
-                  <div className="text-[10px] text-slate-400 pt-1 text-right">
-                    MODULO-10 COMPOSITE CHECK = VALID
+                  <div className={`text-[10px] pt-1 text-right ${
+                    (realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid) ? 'text-slate-400' : 'text-rose-400 font-semibold'
+                  }`}>
+                    {(realtimeOcr?.mrzChecks?.composite ?? realtimeOcr?.mrzValid)
+                      ? 'MODULO-10 COMPOSITE CHECK = VALID'
+                      : 'MODULO-10 COMPOSITE CHECK = INVALID'}
                   </div>
                 </div>
               ) : (
@@ -1292,14 +1300,12 @@ export default function Verify() {
                   Composite Risk Engine
                 </h2>
               </div>
-              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-bold ${
-                hasDocument ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'
-              }`}>
-                {hasDocument ? 'CLEARANCE SAFE' : 'READY'}
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                {hasDocument ? 'AWAITING FULL SCREENING' : 'READY'}
               </span>
             </div>
 
-            {/* Radial Gauge */}
+            {/* Radial Gauge — no numerical risk score exists until Full Screening runs */}
             <div className="flex items-center justify-center py-2">
               <div className="relative w-40 h-40 flex items-center justify-center">
                 <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 160 160">
@@ -1309,9 +1315,9 @@ export default function Verify() {
                     cy="80"
                     fill="transparent"
                     r="66"
-                    stroke={hasDocument ? '#059669' : '#94A3B8'}
+                    stroke="#94A3B8"
                     strokeDasharray="414.69"
-                    strokeDashoffset={hasDocument ? '364.9' : '414.69'}
+                    strokeDashoffset="414.69"
                     strokeLinecap="round"
                     strokeWidth="12"
                   />
@@ -1322,14 +1328,12 @@ export default function Verify() {
                   </span>
                   <div className="flex items-baseline gap-0.5">
                     <span className="font-display text-3xl font-bold leading-none text-slate-900">
-                      {hasDocument ? '12' : '0'}
+                      —
                     </span>
                     <span className="text-xs text-slate-500 font-bold">/100</span>
                   </div>
-                  <span className={`text-[11px] font-bold uppercase tracking-tight mt-1 ${
-                    hasDocument ? 'text-emerald-700' : 'text-slate-500'
-                  }`}>
-                    {hasDocument ? 'Clearance Safe' : 'Standby'}
+                  <span className="text-[11px] font-bold uppercase tracking-tight mt-1 text-slate-500">
+                    {hasDocument ? 'Not Run' : 'Standby'}
                   </span>
                 </div>
               </div>
@@ -1337,7 +1341,7 @@ export default function Verify() {
 
             <p className="text-xs text-slate-600 font-medium">
               {hasDocument
-                ? 'High-Fidelity Optical Ingest · Ready for Full AI Pipeline'
+                ? 'Document ingested — click "Run Full Screening & Admit" to execute the AI pipeline'
                 : 'Awaiting Document & Live Face Capture'}
             </p>
           </section>
@@ -1350,47 +1354,49 @@ export default function Verify() {
             </h3>
 
             <div className="space-y-3 text-xs">
-              {/* Row 1: Tampering & ELA */}
+              {/* Row 1: Tampering & ELA — only real once Full Screening has executed */}
               <div className="p-2.5 rounded-md bg-slate-50 border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-800 font-semibold">SIDTD Neural Tampering &amp; ELA</span>
-                  <span className="text-emerald-700 font-bold font-mono">0.04 (Clean)</span>
+                  <span className="text-slate-400 font-bold font-mono">Not Run</span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
-                  <div className="h-full bg-emerald-600 rounded-full w-[4%]"></div>
+                  <div className="h-full bg-slate-300 rounded-full w-0"></div>
                 </div>
               </div>
 
-              {/* Row 2: Facial Cosine Match */}
+              {/* Row 2: Facial Cosine Match — N/A unless a selfie/live photo was supplied */}
               <div className="p-2.5 rounded-md bg-slate-50 border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-800 font-semibold">Facial Cosine Embedding Match</span>
-                  <span className="text-sky-700 font-bold font-mono">89% (Threshold &gt; 75%)</span>
+                  <span className="text-slate-400 font-bold font-mono">
+                    {liveFile ? 'Not Run' : 'N/A (No Selfie)'}
+                  </span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
-                  <div className="h-full bg-sky-600 rounded-full w-[89%]"></div>
+                  <div className="h-full bg-slate-300 rounded-full w-0"></div>
                 </div>
               </div>
 
-              {/* Row 3: Watchlist / INTERPOL */}
+              {/* Row 3: Watchlist / INTERPOL — backend-driven, unknown until Full Screening runs */}
               <div className="p-2.5 rounded-md bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <div className="text-slate-900 font-semibold">Watchlist / INTERPOL Red Notice</div>
                   <div className="text-[11px] text-slate-500">Live query across 194 national databases</div>
                 </div>
-                <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 font-bold text-xs border border-emerald-200">
-                  0 Hits • Clear
+                <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-600 font-bold text-xs border border-slate-200">
+                  Awaiting Check
                 </span>
               </div>
 
-              {/* Row 4: Multi-Identity / Sybil Check */}
+              {/* Row 4: Multi-Identity / Sybil Check — backend-driven, unknown until Full Screening runs */}
               <div className="p-2.5 rounded-md bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <div className="text-slate-900 font-semibold">Sybil / Duplicate Identity Check</div>
                   <div className="text-[11px] text-slate-500">Multi-point checkpoint biometric cache</div>
                 </div>
-                <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 font-bold text-xs border border-emerald-200">
-                  No Duplicates
+                <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-600 font-bold text-xs border border-slate-200">
+                  Awaiting Check
                 </span>
               </div>
             </div>

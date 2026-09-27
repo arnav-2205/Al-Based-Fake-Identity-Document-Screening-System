@@ -1,5 +1,6 @@
 package gov.mha.screening.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import gov.mha.screening.security.JwtAuthFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -17,7 +18,9 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Configuration
 @EnableMethodSecurity
@@ -34,12 +37,27 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .headers(headers -> headers.frameOptions(frame -> frame.disable()))
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((request, response, authEx) ->
+                    writeJsonError(response, 401, "Authentication required or session expired. Please log in again."))
+                .accessDeniedHandler((request, response, deniedEx) ->
+                    writeJsonError(response, 403, "You do not have permission to perform this action.")))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/login", "/api/auth/dev/**", "/h2-console/**").permitAll()
                 .requestMatchers("/actuator/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                 .anyRequest().authenticated())
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    private void writeJsonError(jakarta.servlet.http.HttpServletResponse response, int status, String message) throws java.io.IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        new ObjectMapper().writeValue(response.getOutputStream(), Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", status,
+                "error", status == 401 ? "Unauthorized" : "Forbidden",
+                "message", message));
     }
 
     @Bean

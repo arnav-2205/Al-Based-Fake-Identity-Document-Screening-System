@@ -88,7 +88,7 @@ export default function VerificationDetail() {
   }  const vz = v.extracted?.visualZone || {};
   const docCategory = (v.extracted?.documentCategory as string) || (vz.documentCategory as string) || (v.documentType === 'PASSPORT' ? 'PASSPORT' : 'NATIONAL_ID');
   const docSubtype = (v.extracted?.documentSubtype as string) || (vz.documentSubtype as string) || (vz.detectedDocumentType as string) || v.documentType || 'NATIONAL_ID_CARD';
-  const issuingCountry = (vz.issuingCountry as string) || 'INDIA';
+  const issuingCountry = (vz.issuingCountry as string) || undefined;
   const isPassport = docCategory === 'PASSPORT' || docSubtype === 'PASSPORT';
 
   const fieldConfidences: Record<string, number> = (vz.fieldConfidences as any) || {};
@@ -206,7 +206,7 @@ export default function VerificationDetail() {
               <span>·</span>
               <span className="text-emerald-400 font-bold flex items-center gap-1">
                 <Globe className="w-3 h-3" />
-                <span>Country: {issuingCountry}</span>
+                <span>Country: {issuingCountry || 'NOT DETECTED'}</span>
               </span>
               <span>·</span>
               <span>{formattedDate}</span>
@@ -875,6 +875,9 @@ export default function VerificationDetail() {
                     )}
                     {v.visaVerification.expiryDate && (
                       <div><span className="text-slate-500">Expiry Date:</span> {v.visaVerification.expiryDate}</div>
+                    )}
+                    {v.visaVerification.placeOfIssue && (
+                      <div><span className="text-slate-500">Place of Issue:</span> <span className="text-slate-300">{v.visaVerification.placeOfIssue}</span></div>
                     )}
                   </div>
 

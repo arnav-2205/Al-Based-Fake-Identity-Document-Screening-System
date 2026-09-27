@@ -278,6 +278,13 @@ public class RiskEngine {
         String overrideReason = null;
         String decision;
 
+        // Decision flow (Spec Part 6): signals -> numerical risk (score/level, computed
+        // above) -> hard security overrides -> final decision. Hard overrides (blacklist,
+        // validation failure) are absolute and checked first. The multiple-identity
+        // override and the numeric HIGH-risk threshold are evaluated together so that
+        // when both apply to the same document, the more severe REJECT decision fires
+        // but the override is still fully attributed in decisionBasis/securityOverride*
+        // instead of being silently dropped in favor of the coincidental score reason.
         if (in.blacklistHit()) {
             decision = "REJECT";
             overrideTriggered = true;
@@ -288,14 +295,16 @@ public class RiskEngine {
             overrideTriggered = true;
             overrideReason = "MRZ Checksum Checkdigit Validation Failed";
             decisionBasis.add("Security override: MRZ Checksum Checkdigit Validation Failed");
-        } else if ("HIGH".equals(level)) {
-            decision = "REJECT";
-            decisionBasis.add(String.format("Risk score (%.1f) exceeded rejection threshold (65.0)", scaled));
-        } else if (in.multipleIdentityFlag()) {
-            decision = "MANUAL_REVIEW";
-            overrideTriggered = true;
-            overrideReason = "Multiple-Identity Fraud Detected";
-            decisionBasis.add("Security override: Multiple-Identity Fraud (Face matches stored embedding for a different document)");
+        } else if ("HIGH".equals(level) || in.multipleIdentityFlag()) {
+            decision = "HIGH".equals(level) ? "REJECT" : "MANUAL_REVIEW";
+            if ("HIGH".equals(level)) {
+                decisionBasis.add(String.format("Risk score (%.1f) exceeded rejection threshold (65.0)", scaled));
+            }
+            if (in.multipleIdentityFlag()) {
+                overrideTriggered = true;
+                overrideReason = "Multiple-Identity Fraud Detected";
+                decisionBasis.add("Security override: Multiple-Identity Fraud (Face matches stored embedding for a different document)");
+            }
         } else if (expiredTrig) {
             decision = "MANUAL_REVIEW";
             decisionBasis.add("Document expiry date has passed");

@@ -763,13 +763,19 @@ class GenericNationalIDAdapter:
         return "UNKNOWN"
 
     def _detect_doc_category_and_subtype(self, upper: str, raw_mrz: str | None) -> tuple[str, str]:
-        # 1. MRZ Signature Check
-        if raw_mrz:
-            clean_mrz = raw_mrz.strip().upper()
-            if clean_mrz.startswith("P<"):
-                return "PASSPORT", "PASSPORT"
-            if clean_mrz.startswith("V<") or clean_mrz.startswith("VI<"):
-                return "VISA", "VISA"
+        # 1. Driving Licence Detection — checked before the MRZ signature because
+        # noisy OCR text on DLs (e.g. "PERMIT"/"POLICE"/PIN-code lines starting with
+        # "P") can be misread by the loose MRZ-line heuristic as a passport/visa MRZ.
+        # A document that clearly carries DL keywords must never be reclassified as
+        # PASSPORT/VISA off the back of that false-positive MRZ candidate.
+        dl_indicators = (
+            "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
+            "MOTOR VEHICLES", "TRANSPORT DEPARTMENT", "UNION OF INDIA DRIVING",
+            "DL NO", "DL NUMBER", "LICENCE NO", "LICENSE NO", "CLASS OF VEHICLE",
+            "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN", "LICENCE TO DRIVE"
+        )
+        if any(k in upper for k in dl_indicators):
+            return "DRIVING_LICENCE", "DRIVING_LICENCE"
 
         # 2. VISA Detection (must precede passport keywords because visas contain "PASSPORT NO")
         visa_indicators = (
@@ -780,15 +786,13 @@ class GenericNationalIDAdapter:
         if any(k in upper for k in visa_indicators):
             return "VISA", "VISA"
 
-        # 3. Driving Licence Detection
-        dl_indicators = (
-            "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
-            "MOTOR VEHICLES", "TRANSPORT DEPARTMENT", "UNION OF INDIA DRIVING",
-            "DL NO", "DL NUMBER", "LICENCE NO", "LICENSE NO", "CLASS OF VEHICLE",
-            "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN", "LICENCE TO DRIVE"
-        )
-        if any(k in upper for k in dl_indicators):
-            return "DRIVING_LICENCE", "DRIVING_LICENCE"
+        # 3. MRZ Signature Check (only trusted once DL/Visa keywords are ruled out)
+        if raw_mrz:
+            clean_mrz = raw_mrz.strip().upper()
+            if clean_mrz.startswith("P<"):
+                return "PASSPORT", "PASSPORT"
+            if clean_mrz.startswith("V<") or clean_mrz.startswith("VI<"):
+                return "VISA", "VISA"
 
         # 4. National ID Subtypes
         if any(k in upper for k in ("AADHAAR", "UIDAI", "UNIQUE IDENTIFICATION")) or (any(k in upper for k in ("GOVERNMENT OF INDIA", "INDIA")) and re.search(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", upper)):
@@ -1003,21 +1007,29 @@ class GenericNationalIDAdapter:
 
         return "", 0.0
 
+    _NATIONALITY_DEMONYMS = {
+        "INDIAN": "IND", "GERMAN": "DEU", "AMERICAN": "USA", "FRENCH": "FRA",
+        "BRITISH": "GBR", "UK": "GBR", "EMIRATI": "ARE", "SINGAPOREAN": "SGP",
+        "KENYAN": "KEN", "NIGERIAN": "NGA", "SOUTH AFRICAN": "ZAF",
+    }
+    _COUNTRY_TO_NATIONALITY = {
+        "INDIA": "IND", "GERMANY": "DEU", "UNITED STATES": "USA", "FRANCE": "FRA",
+        "UNITED KINGDOM": "GBR", "UNITED ARAB EMIRATES": "ARE", "SINGAPORE": "SGP",
+        "KENYA": "KEN", "NIGERIA": "NGA", "SOUTH AFRICA": "ZAF",
+    }
+
     def _extract_nationality(self, upper: str, country: str) -> tuple[str, float]:
-        m = re.search(r"(?:NATIONALITY|NAT|CITIZENSHIP|STAATSANGEHÖRIGKEIT|NACIONALIDAD)\s*[:\s|-]+\s*([A-Z]{3}|\w+)", upper)
+        m = re.search(r"(?:NATIONALITY|NAT|CITIZENSHIP|STAATSANGEHÖRIGKEIT|NACIONALIDAD)\s*[:\s|-]+\s*([A-Z]{3}|[A-Z]+)", upper)
         if m:
             val = m.group(1).upper()
             if len(val) == 3:
                 return val, 0.95
-        if country == "INDIA":
-            return "IND", 0.92
-        if country == "GERMANY":
-            return "DEU", 0.92
-        if country == "UNITED STATES":
-            return "USA", 0.92
-        if country == "FRANCE":
-            return "FRA", 0.92
-        return "", 0.0
+            if val in self._NATIONALITY_DEMONYMS:
+                return self._NATIONALITY_DEMONYMS[val], 0.93
+        # Fall back to the detected (issuing) country only as a last resort — this is
+        # a guess about the bearer's nationality, not the document issuer, and is
+        # overridden by an authoritative MRZ nationality field when one is present.
+        return self._COUNTRY_TO_NATIONALITY.get(country, ""), 0.4 if country in self._COUNTRY_TO_NATIONALITY else 0.0
 
     def _extract_issue_date(
         self, lines: list[str], upper: str, boxes: list[dict[str, Any]]
@@ -1126,13 +1138,24 @@ def detect_document_type(
     """
     text_norm = _normalize_text(text).upper()
 
-    # 1. MRZ Signature Check
-    if raw_mrz:
-        clean_mrz = raw_mrz.strip().upper()
-        if clean_mrz.startswith("P<") or "P<" in clean_mrz:
-            return "PASSPORT", 0.98
-        if clean_mrz.startswith("V<") or "\nV<" in clean_mrz or "V<" in clean_mrz:
-            return "VISA", 0.98
+    # 1. DRIVING_LICENCE Detection — checked first. The MRZ-line heuristic used
+    # elsewhere in the pipeline can misread noisy DL text (e.g. "PERMIT"/PIN-code
+    # lines) as a passport/visa MRZ signature, so DL keywords/barcode evidence must
+    # take precedence over that signature rather than being checked after it.
+    if barcode_data and barcode_data.get("barcodeDetected"):
+        b_type = str(barcode_data.get("barcodeType", "")).upper()
+        if "PDF417" in b_type or "AAMVA" in b_type:
+            return "DRIVING_LICENCE", 0.98
+
+    dl_keywords = (
+        "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
+        "LICENCE NO", "LICENSE NO", "DL NO", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT",
+        "CLASS OF VEHICLES", "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN",
+        "UNION OF INDIA DRIVING", "LICENCE TO DRIVE"
+    )
+    dl_hits = sum(1 for k in dl_keywords if k in text_norm)
+    if dl_hits >= 1:
+        return "DRIVING_LICENCE", 0.95 if dl_hits >= 2 else 0.92
 
     # 2. VISA Detection (checked BEFORE Passport because Visas contain "PASSPORT NO")
     visa_keywords = (
@@ -1148,21 +1171,13 @@ def detect_document_type(
         if any(k in text_norm for k in ("PASSPORT NO", "STAY", "ENTRIES", "VALID FOR", "CATEGORY", "ISSUED AT", "BEARER", "REPUBLIC", "GOVERNMENT")):
             return "VISA", 0.92
 
-    # 3. DRIVING_LICENCE Detection
-    if barcode_data and barcode_data.get("barcodeDetected"):
-        b_type = str(barcode_data.get("barcodeType", "")).upper()
-        if "PDF417" in b_type or "AAMVA" in b_type:
-            return "DRIVING_LICENCE", 0.98
-
-    dl_keywords = (
-        "DRIVING LICENCE", "DRIVING LICENSE", "DRIVER LICENSE", "DRIVER LICENCE",
-        "LICENCE NO", "LICENSE NO", "DL NO", "MOTOR VEHICLES", "TRANSPORT DEPARTMENT",
-        "CLASS OF VEHICLES", "COV", "DRIVING PERMIT", "PERMIS DE CONDUIRE", "FÜHRERSCHEIN",
-        "UNION OF INDIA DRIVING", "LICENCE TO DRIVE"
-    )
-    dl_hits = sum(1 for k in dl_keywords if k in text_norm)
-    if dl_hits >= 1:
-        return "DRIVING_LICENCE", 0.95 if dl_hits >= 2 else 0.92
+    # 3. MRZ Signature Check (only trusted once DL/Visa keywords are ruled out)
+    if raw_mrz:
+        clean_mrz = raw_mrz.strip().upper()
+        if clean_mrz.startswith("P<") or "P<" in clean_mrz:
+            return "PASSPORT", 0.98
+        if clean_mrz.startswith("V<") or "\nV<" in clean_mrz or "V<" in clean_mrz:
+            return "VISA", 0.98
 
     # 4. PASSPORT Detection (now safe because Visa and DL have been evaluated)
     passport_keywords = ("PASSPORT", "PASSEPORT", "PASAPORTE", "REPUBLIK PASSPORT", "REPUBLIC PASSPORT")
@@ -1235,14 +1250,21 @@ def extract_visa_fields(
     expiry_date: str | None = None
     issuing_country: str | None = fields.get("issuingCountry") if fields else None
 
-    # 1. Visa Number
-    if raw_mrz:
-        clean_mrz = raw_mrz.strip().upper()
-        mrz_v = re.search(r"V<[A-Z0-9]{3}([A-Z0-9<]{9})", clean_mrz)
-        if mrz_v:
-            num = mrz_v.group(1).replace("<", "").strip()
-            if len(num) >= 5:
-                visa_number = num
+    # 1. Visa Number — prefer the already-parsed MRZ document number (from line 2 of
+    # the MRZ, via parse_td3) over a fresh regex pass on the raw MRZ text: matching
+    # "V<" loosely against the *whole* raw MRZ can accidentally hit the "V<" issuing
+    # prefix on line 1 (document type + issuing country) and capture the holder's
+    # name instead of the actual document number on line 2.
+    if fields and fields.get("documentNumber") and not fields["documentNumber"].startswith("P<"):
+        visa_number = fields["documentNumber"]
+    elif raw_mrz:
+        lines = [ln.strip().upper() for ln in raw_mrz.strip().splitlines() if ln.strip()]
+        if len(lines) >= 2:
+            mrz_v = re.match(r"^([A-Z0-9<]{9})", lines[1])
+            if mrz_v:
+                num = mrz_v.group(1).replace("<", "").strip()
+                if len(num) >= 5:
+                    visa_number = num
 
     if not visa_number:
         vn_match = re.search(
@@ -1337,6 +1359,34 @@ def extract_visa_fields(
     elif fields and fields.get("issueDate"):
         issue_date = fields["issueDate"]
 
+    # 5b. Place of Issue (the issuing post/embassy/city, distinct from issuing country).
+    # OCR line order on a multi-column visa layout can interleave label lines and
+    # value lines out of alignment (e.g. "PLACE OF ISSUE:" ends up immediately
+    # followed in the text stream by the value that actually belongs to the label
+    # above it), so a same-line/next-line text regex can grab the wrong value. Prefer
+    # spatial box pairing (label box -> nearest value box below/right of it) when
+    # bounding boxes are available, since it reflects the document's real layout.
+    place_of_issue: str | None = None
+    if boxes:
+        for b in boxes:
+            if re.search(r"PLACE\s*OF\s*ISSUE", b["text"], re.I):
+                lbl_cx, lbl_xmin, lbl_ymin, lbl_ymax = b.get("cx", 0), b["xmin"], b["ymin"], b["ymax"]
+                cands = [
+                    box for box in boxes
+                    if box is not b and 2 < box["ymin"] - lbl_ymax < 60 and abs(box["xmin"] - lbl_xmin) < 100
+                ]
+                cands.sort(key=lambda box: box["ymin"] - lbl_ymax)
+                for c in cands:
+                    cand_val = c["text"].strip(" :|-").upper()
+                    if len(cand_val) >= 3 and "/" not in cand_val and not re.fullmatch(r"[0-9 ]+", cand_val):
+                        place_of_issue = cand_val
+                        break
+                break
+    if not place_of_issue:
+        poi_match = re.search(r"PLACE\s*OF\s*ISSUE\s*[:\s|-]*\s*([A-Z][A-Z0-9 ().,-]{2,40})", text_upper)
+        if poi_match:
+            place_of_issue = poi_match.group(1).strip().rstrip(",")
+
     exp_match = re.search(r"(?:EXPIRY\s*DATE|DATE\s*OF\s*EXPIRY|VALID\s*UNTIL|UNTIL|EXPIRATION)\s*[:\s|-]*\s*(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
     if exp_match:
         expiry_date = _normalize_date(exp_match.group(1))
@@ -1368,6 +1418,7 @@ def extract_visa_fields(
             "issueDate": None,
             "expiryDate": None,
             "issuingCountry": None,
+            "placeOfIssue": None,
             "status": "NOT_APPLICABLE",
             "validationMessages": ["Document is not classified as Visa"],
         }
@@ -1410,6 +1461,7 @@ def extract_visa_fields(
         "issueDate": issue_date,
         "expiryDate": expiry_date,
         "issuingCountry": issuing_country,
+        "placeOfIssue": place_of_issue,
         "status": status,
         "validationMessages": msgs,
     }
@@ -1468,23 +1520,41 @@ def extract_dl_fields(
             if not any(k in cand_dl for k in ("PASSPORT", "RECEIPT", "APPLICATION")):
                 dl_number = cand_dl
 
+    if not dl_number:
+        m_lbl2 = re.search(r"LICENCE\s*NO\s*[:\s|-]*\s*([A-Z0-9-/]{6,20})", text_upper)
+        if m_lbl2:
+            dl_number = m_lbl2.group(1).strip()
+
     if not dl_number and fields and fields.get("documentNumber"):
-        if not fields.get("documentNumber", "").startswith("P<"):
-            dl_number = fields["documentNumber"]
+        cand_num = fields.get("documentNumber", "")
+        # The generic-adapter fallback is only trustworthy when it actually looks like
+        # a document number (contains a digit); on DL layouts it can otherwise latch
+        # onto an unrelated label fragment (e.g. "ISSUING AUTHORITY" -> "ISSUINGAU").
+        if cand_num and not cand_num.startswith("P<") and any(c.isdigit() for c in cand_num):
+            dl_number = cand_num
 
-    # 3. Holder Name Extraction
-    if fields and (fields.get("name") or fields.get("holderName")):
+    # 3. Holder Name Extraction — try the DL-specific "NAME:" label match first, since
+    # the generic adapter's name heuristic can misfire on DL layouts (e.g. matching
+    # "VALID TILL: 14-08-2038" as a name-like span) and must not be trusted blindly.
+    m_name = re.search(r"(?:NAME\s*OF\s*HOLDER|HOLDER\s*NAME|NAME)\s*[:\s|-]*\s*([A-Z\ '.]{3,30})", text_upper)
+    if m_name:
+        c_name = m_name.group(1).strip()
+        c_name = re.split(r"\b(?:S/O|D/O|W/O|SON OF|DAUGHTER OF|WIFE OF)\b", c_name)[0].strip()
+        if (
+            len(c_name) >= 3
+            and not any(c.isdigit() for c in c_name)
+            and not any(k in c_name for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "AUTHORITY", "UNION", "GOVT", "INDIA", "STATE", "ADDRESS", "DOB", "DATE", "TILL", "VALID"))
+        ):
+            holder_name = c_name
+
+    if not holder_name and fields and (fields.get("name") or fields.get("holderName")):
         cand_name = fields.get("name") or fields.get("holderName")
-        if cand_name and not any(k in cand_name.upper() for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "GOVERNMENT", "DEPARTMENT", "INDIA", "STATE")):
+        if (
+            cand_name
+            and not any(c.isdigit() for c in cand_name)
+            and not any(k in cand_name.upper() for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "GOVERNMENT", "DEPARTMENT", "INDIA", "STATE", "TILL", "VALID"))
+        ):
             holder_name = cand_name
-
-    if not holder_name:
-        m_name = re.search(r"(?:NAME\s*OF\s*HOLDER|HOLDER\s*NAME|NAME)\s*[:\s|-]*\s*([A-Z\ '.]{3,30})", text_upper)
-        if m_name:
-            c_name = m_name.group(1).strip()
-            c_name = re.split(r"\b(?:S/O|D/O|W/O|SON OF|DAUGHTER OF|WIFE OF)\b", c_name)[0].strip()
-            if len(c_name) >= 3 and not any(k in c_name for k in ("DRIVING", "LICENCE", "LICENSE", "TRANSPORT", "AUTHORITY", "UNION", "GOVT", "INDIA", "STATE", "ADDRESS", "DOB", "DATE")):
-                holder_name = c_name
 
     # 4. Date of Birth
     m_dob = re.search(r"(?:DOB|DATE\s*OF\s*BIRTH|D\.O\.B|BIRTH\s*DATE)[\s\S]{0,120}?(\d{1,4}[-/]\d{1,2}[-/]\d{2,4})", text_upper)
@@ -1532,11 +1602,18 @@ def extract_dl_fields(
                 state = st_name
                 break
 
-    m_rto = re.search(r"(?:RTO|LICENSING\s*AUTHORITY|ISSUING\s*AUTHORITY|TRANSPORT\s*DEPARTMENT)\s*[:\s|-]*\s*([A-Z0-9\s,]{3,30})", text_upper)
+    # Prefer the most specific "issuing authority" label over a generic header like
+    # "TRANSPORT DEPARTMENT, <STATE>" that can appear earlier in the document, and
+    # stop the capture at a line break so it can't run on into the next OCR line.
+    m_rto = re.search(r"(?:ISSUING\s*AUTHORITY|LICENSING\s*AUTHORITY|RTO)\s*[:\s|-]*\s*([A-Z0-9 ,()-]{3,40})", text_upper)
     if m_rto:
-        issuing_authority = m_rto.group(1).strip()
-    elif state:
-        issuing_authority = f"TRANSPORT DEPARTMENT, {state}"
+        issuing_authority = m_rto.group(1).strip().rstrip(",")
+    else:
+        m_dept = re.search(r"TRANSPORT\s*DEPARTMENT\s*,?\s*([A-Z ]{2,25})?", text_upper)
+        if m_dept:
+            issuing_authority = "TRANSPORT DEPARTMENT" + (f", {m_dept.group(1).strip()}" if m_dept.group(1) else "")
+        elif state:
+            issuing_authority = f"TRANSPORT DEPARTMENT, {state}"
 
     # 8. Vehicle Classes (COV)
     cov_matches = re.findall(r"\b(MCWG|LMV|HMV|TRANS|NON-TRANS|MCWOG|3W-CAB|LMV-NT|MCW|COV)\b", text_upper)
@@ -2103,10 +2180,6 @@ def extract(data: bytes) -> dict[str, Any]:
 
     # 1. OCR Text & Spatial Bounding Box Extraction
     text, ocr_confidence, boxes = _extract_text_from_data(data)
-    if text:
-        notes.append("OCR: Text & spatial vector bounding boxes extracted successfully")
-    else:
-        notes.append("OCR: No readable text detected in document image")
 
     # 2. MRZ Detection (Passports & TD1 ID Cards)
     meta_mrz = _extract_mrz_from_metadata(data)
@@ -2115,6 +2188,19 @@ def extract(data: bytes) -> dict[str, Any]:
         mrz_status = "DETECTED"
     else:
         raw_mrz, mrz_status = _find_mrz(text)
+
+    # The explainability note must reflect whether ANY extraction source succeeded —
+    # bitmap OCR or the embedded-MRZ-metadata fallback — not just the bitmap OCR pass
+    # alone. Otherwise a document whose fields were recovered via the MRZ metadata
+    # fallback (bitmap OCR having failed) would misleadingly report "no readable text"
+    # right next to a fully-populated, high-confidence extraction result.
+    if text:
+        notes.append("OCR: Text & spatial vector bounding boxes extracted successfully")
+    elif meta_mrz:
+        notes.append("OCR: Bitmap text extraction failed — fields recovered via embedded MRZ metadata")
+    else:
+        notes.append("OCR: No readable text detected in document image")
+
     mrz_valid = False
     mrz_checks: dict[str, bool] = {}
     parsed_mrz = None
@@ -2152,8 +2238,13 @@ def extract(data: bytes) -> dict[str, Any]:
     visual_fields = dict(fields)
     mrz_fields: dict[str, str] = {}
 
-    # 5. If passport/ID MRZ is present, merge MRZ extracted values
-    if parsed_mrz:
+    # 5. If passport/visa/ID MRZ is present, merge MRZ extracted values.
+    # Only trust it for document categories that actually carry an ICAO MRZ — the
+    # loose line-based MRZ heuristic (`_find_mrz`) can misread unrelated label/value
+    # text on e.g. a Driving Licence (which has no MRZ at all) as a fake MRZ pair,
+    # producing a `parsed_mrz` with garbage fields that would otherwise clobber the
+    # real, correctly-extracted document fields below.
+    if parsed_mrz and doc_category in ("PASSPORT", "VISA", "NATIONAL_ID"):
         mrz_name = f"{parsed_mrz.given_names} {parsed_mrz.surname}".strip()
         if mrz_name:
             mrz_fields["name"] = mrz_name
@@ -2188,7 +2279,14 @@ def extract(data: bytes) -> dict[str, Any]:
             field_confidences["expiryDate"] = 0.99
             field_states["expiryDate"] = "DETECTED"
         if parsed_mrz.nationality:
+            # MRZ line 2 nationality is the holder's actual nationality per ICAO 9303
+            # and is authoritative over the visual/keyword-based guess in `fields`,
+            # which can be wrong (e.g. it can pick up the issuing country's name
+            # instead of the bearer's nationality on a visa).
             mrz_fields["nationality"] = parsed_mrz.nationality
+            fields["nationality"] = parsed_mrz.nationality
+            field_confidences["nationality"] = 0.99
+            field_states["nationality"] = "DETECTED"
 
     # Ensure gender and sex aliases are consistently available
     if fields.get("gender") and not fields.get("sex"):

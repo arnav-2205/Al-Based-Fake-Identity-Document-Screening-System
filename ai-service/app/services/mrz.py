@@ -158,12 +158,6 @@ def parse_td3(raw: str | None) -> ParsedMrz | None:
     comp_b = l2[0:10] + l2[13:20] + l2[21:43]
 
     comp_ok = _verify(comp_a, final_chk) or _verify(comp_b, final_chk)
-    # If the 3 primary fields (doc, dob, expiry) pass, and composite is within single-char OCR tolerance
-    if not comp_ok and doc_ok and dob_ok and exp_ok:
-        expected = str(check_digit(comp_a))
-        expected_b = str(check_digit(comp_b))
-        if final_chk in (expected, expected_b) or final_chk in ("<", "0"):
-            comp_ok = True
 
     checks = {
         "documentNumber": doc_ok,

@@ -114,6 +114,7 @@ public final class AiDtos {
             @JsonProperty("issueDate") String issueDate,
             @JsonProperty("expiryDate") String expiryDate,
             @JsonProperty("issuingCountry") String issuingCountry,
+            @JsonProperty("placeOfIssue") String placeOfIssue,
             @JsonProperty("status") String status,
             @JsonProperty("validationMessages") List<String> validationMessages
     ) {

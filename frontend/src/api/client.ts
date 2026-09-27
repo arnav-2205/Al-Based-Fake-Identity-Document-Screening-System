@@ -14,10 +14,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      // Stale or expired token after server restart
+    // 401 = not authenticated (missing/invalid/expired token) — the token is stale,
+    // so clear it and send the officer back to log in instead of leaving them stuck
+    // re-submitting a request that will always fail the same way.
+    if (error.response?.status === 401) {
       if (localStorage.getItem('token') && !window.location.pathname.includes('/login')) {
-        console.warn('Session expired or unauthorized (401/403). Clearing stale token.');
+        console.warn('Session expired or invalid token. Clearing stale token.');
+        localStorage.removeItem('token');
+        window.location.href = '/login';
       }
     }
     return Promise.reject(error);
@@ -195,6 +199,7 @@ export interface VisaVerificationView {
   issueDate?: string;
   expiryDate?: string;
   issuingCountry?: string;
+  placeOfIssue?: string;
   status: 'VALID' | 'INVALID' | 'PARTIAL' | 'UNKNOWN' | 'NOT_APPLICABLE';
   validationMessages?: string[];
 }

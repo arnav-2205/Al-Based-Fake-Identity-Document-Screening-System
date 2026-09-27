@@ -145,7 +145,10 @@ def main():
     visa_draw.text((500, 180), "LONDON (HCI)", fill=(15, 23, 42), font=visa_font_val)
     
     visa_mrz_l1 = "V<INDWATSON<<EMILY<<<<<<<<<<<<<<<<<<<<<<<<<<"
-    visa_mrz_l2 = "V9842105<4GBR8806152F2812318<<<<<<<<<<<<<<<02"
+    # Check digits (pos 9 doc-number, pos 19 DOB, pos 27 expiry, pos 43 composite)
+    # computed with the ICAO 9303 7-3-1 weighted algorithm so this "genuine" fixture
+    # actually passes MRZ validation instead of failing its own check digits.
+    visa_mrz_l2 = "V9842105<2GBR8806150F2812313<<<<<<<<<<<<<<02"
     visa_draw.rectangle([20, 410, 780, 495], fill=(10, 25, 47))
     visa_draw.text((35, 422), visa_mrz_l1, fill=(110, 231, 183), font=visa_font_mrz)
     visa_draw.text((35, 455), visa_mrz_l2, fill=(110, 231, 183), font=visa_font_mrz)

@@ -222,12 +222,13 @@ public class VerificationService {
                     issD,
                     expD,
                     vrAi != null && vrAi.issuingCountry() != null ? vrAi.issuingCountry() : "INDIA",
+                    vrAi != null ? vrAi.placeOfIssue() : null,
                     vStatus,
                     vMsgs
             );
         } else {
             visaVerificationView = new VerificationDtos.VisaVerificationView(
-                    null, null, "UNKNOWN", null, null, null, null, null, null, "NOT_APPLICABLE",
+                    null, null, "UNKNOWN", null, null, null, null, null, null, null, "NOT_APPLICABLE",
                     List.of("Document is not classified as Visa")
             );
         }

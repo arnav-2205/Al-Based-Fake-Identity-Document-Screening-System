@@ -57,6 +57,7 @@ class VisaResult(BaseModel):
     issueDate: str | None = None
     expiryDate: str | None = None
     issuingCountry: str | None = None
+    placeOfIssue: str | None = None
     status: str = "NOT_APPLICABLE"
     validationMessages: list[str] = Field(default_factory=list)
 

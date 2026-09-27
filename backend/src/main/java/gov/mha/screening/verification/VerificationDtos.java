@@ -44,6 +44,7 @@ public final class VerificationDtos {
             String issueDate,
             String expiryDate,
             String issuingCountry,
+            String placeOfIssue,
             String status,
             List<String> validationMessages
     ) {}
