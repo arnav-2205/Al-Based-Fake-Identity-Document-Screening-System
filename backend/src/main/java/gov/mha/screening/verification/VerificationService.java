@@ -702,7 +702,7 @@ public class VerificationService {
 
         VerificationDtos.VisaVerificationView visaView = vr.getVisaVerification() != null
                 ? vr.getVisaVerification()
-                : new VerificationDtos.VisaVerificationView(null, null, "UNKNOWN", null, null, null, null, null, null, "NOT_APPLICABLE", List.of("Document is not classified as Visa"));
+                : new VerificationDtos.VisaVerificationView(null, null, "UNKNOWN", null, null, null, null, null, null, null, "NOT_APPLICABLE", List.of("Document is not classified as Visa"));
 
         VerificationDtos.DrivingLicenceVerificationView dlView = vr.getDrivingLicenceVerification() != null
                 ? vr.getDrivingLicenceVerification()
